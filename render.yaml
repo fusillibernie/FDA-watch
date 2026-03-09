@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: fda-watch
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+    disk:
+      name: fda-watch-data
+      mountPath: /app/data
+      sizeGB: 1

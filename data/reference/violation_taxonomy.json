@@ -1,0 +1,54 @@
+{
+  "adulteration": {
+    "keywords": ["adulterated", "filth", "insanitary", "contaminated", "pathogen", "rodent", "pest", "unsanitary"],
+    "patterns": ["21 CFR 110", "21 CFR 117", "section 402", "402\\(a\\)"]
+  },
+  "misbranding": {
+    "keywords": ["misbranded", "misleading", "false label", "mislabeled"],
+    "patterns": ["section 403", "403\\(a\\)", "21 CFR 101"]
+  },
+  "gmp_violation": {
+    "keywords": ["gmp", "good manufacturing practice", "manufacturing deficiency", "process control"],
+    "patterns": ["21 CFR 110", "21 CFR 111", "21 CFR 117", "current good manufacturing"]
+  },
+  "undeclared_allergen": {
+    "keywords": ["undeclared allergen", "undeclared milk", "undeclared peanut", "undeclared soy", "undeclared wheat", "undeclared egg", "undeclared tree nut", "undeclared fish", "undeclared shellfish", "undeclared sesame"],
+    "patterns": ["undeclared \\w+", "contains \\w+ not declared", "allergen.*not.*label", "FALCPA"]
+  },
+  "undeclared_ingredient": {
+    "keywords": ["undeclared ingredient", "unlisted ingredient", "hidden ingredient", "not listed on label", "undeclared drug"],
+    "patterns": ["undeclared.*ingredient", "contains.*not.*listed"]
+  },
+  "unapproved_drug_claim": {
+    "keywords": ["drug claim", "treats", "cures", "prevents disease", "diagnoses", "mitigates disease", "new drug", "unapproved drug"],
+    "patterns": ["intended to .*(treat|cure|prevent|diagnose|mitigate)", "new drug.*not generally recognized", "section 201\\(g\\)"]
+  },
+  "structure_function_claim": {
+    "keywords": ["structure/function", "structure function", "dietary supplement claim", "disclaimer required"],
+    "patterns": ["structure.function claim", "section 403\\(r\\)\\(6\\)"]
+  },
+  "labeling_violation": {
+    "keywords": ["labeling", "nutrition facts", "serving size", "net weight", "ingredient list", "label requirement"],
+    "patterns": ["21 CFR 101", "nutrition labeling", "label.*fail", "label.*not.*comply"]
+  },
+  "contamination": {
+    "keywords": ["salmonella", "listeria", "e. coli", "lead", "cadmium", "arsenic", "mercury", "foreign object", "metal fragment", "glass", "plastic"],
+    "patterns": ["contaminat", "foreign material", "heavy metal"]
+  },
+  "cgmp_dietary_supplement": {
+    "keywords": ["cgmp dietary supplement", "dietary supplement cgmp", "identity testing", "supplement gmp"],
+    "patterns": ["21 CFR 111", "dietary supplement.*cgmp", "cgmp.*dietary supplement"]
+  },
+  "unauthorized_color_additive": {
+    "keywords": ["color additive", "unauthorized color", "unapproved color", "FD&C"],
+    "patterns": ["color additive.*not.*approved", "unauthorized.*color"]
+  },
+  "deceptive_advertising": {
+    "keywords": ["deceptive", "misleading advertising", "false advertising", "deceptive practice", "unfair practice"],
+    "patterns": ["deceptive.*advertis", "misleading.*claim", "section 5.*FTC"]
+  },
+  "unsubstantiated_claim": {
+    "keywords": ["unsubstantiated", "no scientific evidence", "insufficient evidence", "not supported by evidence", "lacks substantiation"],
+    "patterns": ["unsubstantiat", "claim.*not.*support", "no adequate.*evidence"]
+  }
+}

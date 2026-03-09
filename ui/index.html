@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FDA-watch</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+:root {
+  --red-600: #dc2626;
+  --red-700: #b91c1c;
+  --red-50: #fef2f2;
+  --red-100: #fee2e2;
+  --amber-500: #f59e0b;
+  --amber-100: #fef3c7;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-500: #6b7280;
+  --gray-700: #374151;
+  --gray-900: #111827;
+  --green-600: #16a34a;
+  --green-100: #dcfce7;
+  --blue-600: #2563eb;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--gray-50); color: var(--gray-900); }
+a { color: var(--red-600); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Header */
+.header { background: var(--red-700); color: white; padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 1.4rem; font-weight: 700; }
+.header .subtitle { font-size: 0.85rem; opacity: 0.8; }
+
+/* Tabs */
+.tabs { display: flex; background: white; border-bottom: 2px solid var(--gray-200); padding: 0 2rem; }
+.tab { padding: 0.75rem 1.25rem; cursor: pointer; font-weight: 500; color: var(--gray-500); border-bottom: 2px solid transparent; margin-bottom: -2px; position: relative; }
+.tab:hover { color: var(--gray-700); }
+.tab.active { color: var(--red-600); border-bottom-color: var(--red-600); }
+.tab .badge { background: var(--red-600); color: white; font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: 999px; margin-left: 0.4rem; vertical-align: middle; }
+
+/* Main content */
+.content { max-width: 1200px; margin: 0 auto; padding: 1.5rem 2rem; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* Cards */
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.stat-card { background: white; padding: 1.25rem; border-radius: 8px; border: 1px solid var(--gray-200); }
+.stat-card .label { font-size: 0.8rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-card .value { font-size: 2rem; font-weight: 700; margin-top: 0.25rem; }
+.stat-card .value.red { color: var(--red-600); }
+.stat-card .value.amber { color: var(--amber-500); }
+
+/* Charts */
+.chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+.chart-card { background: white; border: 1px solid var(--gray-200); border-radius: 8px; padding: 1rem; }
+.chart-card h3 { font-size: 0.95rem; margin-bottom: 0.75rem; color: var(--gray-700); }
+
+/* Table */
+.toolbar { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
+.toolbar input, .toolbar select { padding: 0.5rem 0.75rem; border: 1px solid var(--gray-300); border-radius: 6px; font-size: 0.9rem; }
+.toolbar input { flex: 1; min-width: 200px; }
+.toolbar select { min-width: 140px; }
+table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; border: 1px solid var(--gray-200); }
+th { background: var(--gray-100); text-align: left; padding: 0.6rem 0.75rem; font-size: 0.8rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.05em; }
+td { padding: 0.6rem 0.75rem; border-top: 1px solid var(--gray-200); font-size: 0.9rem; }
+tr:hover td { background: var(--red-50); }
+.severity-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+.severity-class_i { background: var(--red-100); color: var(--red-700); }
+.severity-class_ii { background: var(--amber-100); color: #92400e; }
+.severity-class_iii { background: var(--green-100); color: #166534; }
+.severity-warning { background: var(--amber-100); color: #92400e; }
+.severity-advisory { background: var(--gray-100); color: var(--gray-700); }
+.pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; font-size: 0.9rem; color: var(--gray-500); }
+.pagination button { padding: 0.4rem 1rem; border: 1px solid var(--gray-300); border-radius: 6px; background: white; cursor: pointer; }
+.pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Alerts */
+.alert-rules { display: grid; gap: 0.75rem; margin-bottom: 1.5rem; }
+.alert-rule-card { background: white; border: 1px solid var(--gray-200); border-radius: 8px; padding: 1rem; display: flex; justify-content: space-between; align-items: center; }
+.alert-rule-card .info h4 { font-size: 0.95rem; }
+.alert-rule-card .info .keywords { font-size: 0.8rem; color: var(--gray-500); margin-top: 0.25rem; }
+.alert-rule-card .actions button { margin-left: 0.5rem; }
+.match-feed { display: grid; gap: 0.5rem; }
+.match-card { background: white; border: 1px solid var(--gray-200); border-radius: 8px; padding: 0.75rem 1rem; display: flex; justify-content: space-between; align-items: center; }
+.match-card.unread { border-left: 3px solid var(--red-600); }
+.match-card .match-info .title { font-weight: 500; }
+.match-card .match-info .meta { font-size: 0.8rem; color: var(--gray-500); }
+
+/* Buttons */
+.btn { padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; border: none; cursor: pointer; font-weight: 500; }
+.btn-primary { background: var(--red-600); color: white; }
+.btn-primary:hover { background: var(--red-700); }
+.btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+.btn-outline { background: white; border: 1px solid var(--gray-300); color: var(--gray-700); }
+.btn-outline:hover { background: var(--gray-100); }
+.btn-danger { background: white; border: 1px solid var(--red-600); color: var(--red-600); }
+
+/* Modal */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; justify-content: center; align-items: center; }
+.modal-overlay.active { display: flex; }
+.modal { background: white; border-radius: 12px; padding: 1.5rem; width: 90%; max-width: 500px; }
+.modal h3 { margin-bottom: 1rem; }
+.modal .form-group { margin-bottom: 1rem; }
+.modal label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 0.25rem; }
+.modal input, .modal select { width: 100%; padding: 0.5rem; border: 1px solid var(--gray-300); border-radius: 6px; }
+.modal .form-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+
+/* Settings */
+.settings-section { background: white; border: 1px solid var(--gray-200); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+.settings-section h3 { font-size: 1rem; margin-bottom: 0.75rem; }
+.settings-section .form-group { margin-bottom: 0.75rem; }
+.settings-section label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 0.25rem; }
+.settings-section input { padding: 0.5rem; border: 1px solid var(--gray-300); border-radius: 6px; width: 100%; max-width: 400px; }
+
+/* Detail panel */
+.detail-panel { background: white; border: 1px solid var(--gray-200); border-radius: 8px; padding: 1.25rem; margin-top: 1rem; }
+.detail-panel h3 { margin-bottom: 0.75rem; }
+.detail-panel .field { margin-bottom: 0.5rem; }
+.detail-panel .field-label { font-size: 0.8rem; color: var(--gray-500); text-transform: uppercase; }
+.detail-panel .field-value { font-size: 0.95rem; }
+.close-detail { float: right; cursor: pointer; font-size: 1.2rem; color: var(--gray-500); background: none; border: none; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .chart-row { grid-template-columns: 1fr; }
+  .header { padding: 0.75rem 1rem; }
+  .content { padding: 1rem; }
+  .tabs { padding: 0 0.5rem; overflow-x: auto; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>FDA-watch</h1>
+    <div class="subtitle">FDA &amp; Advertising Compliance Monitor</div>
+  </div>
+  <button class="btn btn-primary" onclick="triggerIngest()" id="ingestBtn">Sync Now</button>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="dashboard">Dashboard</div>
+  <div class="tab" data-tab="enforcement">Enforcement</div>
+  <div class="tab" data-tab="litigation">Litigation</div>
+  <div class="tab" data-tab="alerts">Alerts <span class="badge" id="alertBadge" style="display:none">0</span></div>
+  <div class="tab" data-tab="settings">Settings</div>
+</div>
+
+<div class="content">
+
+  <!-- Dashboard -->
+  <div class="panel active" id="panel-dashboard">
+    <div class="stats-grid">
+      <div class="stat-card"><div class="label">Total Actions</div><div class="value" id="statTotal">-</div></div>
+      <div class="stat-card"><div class="label">Last 7 Days</div><div class="value red" id="statRecent">-</div></div>
+      <div class="stat-card"><div class="label">Unread Alerts</div><div class="value amber" id="statAlerts">-</div></div>
+      <div class="stat-card"><div class="label">Last Sync</div><div class="value" id="statSync" style="font-size:1rem">-</div></div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-card"><h3>Actions by Month</h3><div id="chartTimeline"></div></div>
+      <div class="chart-card"><h3>Severity Breakdown</h3><div id="chartSeverity"></div></div>
+    </div>
+    <div class="chart-card"><h3>Top Companies</h3>
+      <table id="topCompaniesTable"><thead><tr><th>Company</th><th>Actions</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <!-- Enforcement -->
+  <div class="panel" id="panel-enforcement">
+    <div class="toolbar">
+      <input type="text" id="enfSearch" placeholder="Search actions...">
+      <select id="enfCategory"><option value="">All Categories</option></select>
+      <select id="enfViolation"><option value="">All Violations</option></select>
+      <select id="enfSeverity"><option value="">All Severities</option></select>
+      <button class="btn btn-outline" onclick="loadActions()">Filter</button>
+    </div>
+    <table id="actionsTable">
+      <thead><tr><th>Date</th><th>Company</th><th>Title</th><th>Severity</th><th>Source</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="pagination">
+      <span id="enfPagInfo">-</span>
+      <div>
+        <button id="enfPrev" onclick="changePage(-1)" disabled>&laquo; Prev</button>
+        <button id="enfNext" onclick="changePage(1)" disabled>Next &raquo;</button>
+      </div>
+    </div>
+    <div id="actionDetail" class="detail-panel" style="display:none"></div>
+  </div>
+
+  <!-- Litigation (Phase 2) -->
+  <div class="panel" id="panel-litigation">
+    <div style="text-align:center;padding:3rem;color:var(--gray-500)">
+      <h2>Litigation Tracking</h2>
+      <p style="margin-top:0.5rem">NAD decisions, FTC actions, and class action lawsuits coming in Phase 2.</p>
+    </div>
+  </div>
+
+  <!-- Alerts -->
+  <div class="panel" id="panel-alerts">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <h2>Alert Rules</h2>
+      <button class="btn btn-primary" onclick="showCreateRuleModal()">+ New Rule</button>
+    </div>
+    <div class="alert-rules" id="alertRulesList"></div>
+    <h2 style="margin:1.5rem 0 1rem">Recent Matches</h2>
+    <div class="match-feed" id="alertMatchesList"></div>
+  </div>
+
+  <!-- Settings -->
+  <div class="panel" id="panel-settings">
+    <div class="settings-section">
+      <h3>openFDA API Key</h3>
+      <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:0.5rem">Optional. Increases rate limit from 40 to 240 req/min.</p>
+      <div class="form-group">
+        <input type="text" id="settingsApiKey" placeholder="Enter API key...">
+      </div>
+      <button class="btn btn-outline" onclick="saveSettings()">Save</button>
+    </div>
+    <div class="settings-section">
+      <h3>Data Management</h3>
+      <button class="btn btn-outline" onclick="triggerIngest()">Re-ingest All Data</button>
+      <span style="margin-left:0.5rem;font-size:0.85rem;color:var(--gray-500)" id="syncInfo"></span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Create Rule Modal -->
+<div class="modal-overlay" id="ruleModal">
+  <div class="modal">
+    <h3 id="ruleModalTitle">Create Alert Rule</h3>
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="ruleName" placeholder="e.g. Undeclared allergens">
+    </div>
+    <div class="form-group">
+      <label>Keywords (comma-separated)</label>
+      <input type="text" id="ruleKeywords" placeholder="e.g. undeclared, allergen, peanut">
+    </div>
+    <div class="form-group">
+      <label>Product Category (optional)</label>
+      <select id="ruleCategory"><option value="">All</option></select>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-outline" onclick="closeRuleModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveRule()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';
+let enfOffset = 0;
+const ENF_LIMIT = 50;
+let enfTotal = 0;
+
+function escapeHtml(str) {
+  if (str == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(str);
+  return d.innerHTML;
+}
+
+// --- Tab navigation ---
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+  });
+});
+
+// --- Dashboard ---
+async function loadDashboard() {
+  try {
+    const [stats, status, unread] = await Promise.all([
+      fetch(API + '/api/actions/stats').then(r => r.json()),
+      fetch(API + '/api/ingest/status').then(r => r.json()),
+      fetch(API + '/api/alerts/matches/unread-count').then(r => r.json()),
+    ]);
+
+    document.getElementById('statTotal').textContent = stats.total_actions;
+    document.getElementById('statRecent').textContent = stats.recent_7_days;
+    document.getElementById('statAlerts').textContent = unread.unread;
+
+    const badge = document.getElementById('alertBadge');
+    if (unread.unread > 0) {
+      badge.textContent = unread.unread;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+
+    // Last sync
+    const ss = status.sync_state || {};
+    const lastSync = ss.openfda_last_fetch || ss.warning_letters_last_fetch || 'Never';
+    document.getElementById('statSync').textContent = lastSync;
+    document.getElementById('syncInfo').textContent = 'Last sync: ' + lastSync;
+
+    // Timeline chart
+    const months = Object.keys(stats.by_month || {});
+    const counts = Object.values(stats.by_month || {});
+    if (months.length > 0) {
+      Plotly.newPlot('chartTimeline', [{
+        x: months, y: counts, type: 'bar',
+        marker: { color: '#dc2626' }
+      }], {
+        margin: { t: 10, b: 40, l: 40, r: 10 },
+        height: 250,
+        xaxis: { tickangle: -45 },
+      }, { responsive: true, displayModeBar: false });
+    }
+
+    // Severity donut
+    const sevLabels = Object.keys(stats.by_severity || {});
+    const sevValues = Object.values(stats.by_severity || {});
+    if (sevLabels.length > 0) {
+      Plotly.newPlot('chartSeverity', [{
+        labels: sevLabels.map(s => s.replace('_', ' ').toUpperCase()),
+        values: sevValues,
+        type: 'pie', hole: 0.45,
+        marker: { colors: ['#dc2626', '#f59e0b', '#16a34a', '#f59e0b', '#9ca3af'] }
+      }], {
+        margin: { t: 10, b: 10, l: 10, r: 10 },
+        height: 250,
+        showlegend: true,
+        legend: { font: { size: 11 } }
+      }, { responsive: true, displayModeBar: false });
+    }
+
+    // Top companies
+    const tbody = document.querySelector('#topCompaniesTable tbody');
+    tbody.innerHTML = '';
+    const companies = stats.top_companies || {};
+    Object.entries(companies).slice(0, 10).forEach(([name, count]) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + escapeHtml(name) + '</td><td>' + escapeHtml(count) + '</td>';
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    console.error('Dashboard load failed:', e);
+  }
+}
+
+// --- Enforcement ---
+async function loadActions() {
+  const params = new URLSearchParams();
+  const q = document.getElementById('enfSearch').value.trim();
+  const cat = document.getElementById('enfCategory').value;
+  const vio = document.getElementById('enfViolation').value;
+  const sev = document.getElementById('enfSeverity').value;
+
+  if (q) params.set('q', q);
+  if (cat) params.set('category', cat);
+  if (vio) params.set('violation_type', vio);
+  if (sev) params.set('severity', sev);
+  params.set('offset', enfOffset);
+  params.set('limit', ENF_LIMIT);
+
+  try {
+    const data = await fetch(API + '/api/actions?' + params).then(r => r.json());
+    enfTotal = data.total;
+
+    const tbody = document.querySelector('#actionsTable tbody');
+    tbody.innerHTML = '';
+    (data.results || []).forEach(a => {
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = () => showActionDetail(a.id);
+      const srcLabel = (a.source || '').replace(/_/g, ' ');
+      tr.innerHTML =
+        '<td>' + escapeHtml(a.date) + '</td>' +
+        '<td>' + escapeHtml(a.company) + '</td>' +
+        '<td>' + escapeHtml(a.title ? a.title.substring(0, 80) : '') + '</td>' +
+        '<td><span class="severity-badge severity-' + escapeHtml(a.severity) + '">' + escapeHtml(a.severity ? a.severity.replace('_', ' ').toUpperCase() : '') + '</span></td>' +
+        '<td>' + escapeHtml(srcLabel) + '</td>';
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById('enfPagInfo').textContent =
+      (enfTotal === 0 ? 'No results' : (enfOffset + 1) + '-' + Math.min(enfOffset + ENF_LIMIT, enfTotal) + ' of ' + enfTotal);
+    document.getElementById('enfPrev').disabled = enfOffset === 0;
+    document.getElementById('enfNext').disabled = enfOffset + ENF_LIMIT >= enfTotal;
+  } catch (e) {
+    console.error('Failed to load actions:', e);
+  }
+}
+
+function changePage(dir) {
+  enfOffset = Math.max(0, enfOffset + dir * ENF_LIMIT);
+  loadActions();
+}
+
+async function showActionDetail(id) {
+  try {
+    const a = await fetch(API + '/api/actions/' + encodeURIComponent(id)).then(r => r.json());
+    const panel = document.getElementById('actionDetail');
+    panel.style.display = 'block';
+    panel.innerHTML =
+      '<button class="close-detail" onclick="this.parentElement.style.display=\'none\'">&times;</button>' +
+      '<h3>' + escapeHtml(a.title) + '</h3>' +
+      '<div class="field"><div class="field-label">Company</div><div class="field-value">' + escapeHtml(a.company) + '</div></div>' +
+      '<div class="field"><div class="field-label">Date</div><div class="field-value">' + escapeHtml(a.date) + '</div></div>' +
+      '<div class="field"><div class="field-label">Severity</div><div class="field-value"><span class="severity-badge severity-' + escapeHtml(a.severity) + '">' + escapeHtml(a.severity ? a.severity.replace('_', ' ').toUpperCase() : '') + '</span></div></div>' +
+      '<div class="field"><div class="field-label">Violation Types</div><div class="field-value">' + escapeHtml((a.violation_types || []).join(', ')) + '</div></div>' +
+      '<div class="field"><div class="field-label">Categories</div><div class="field-value">' + escapeHtml((a.product_categories || []).join(', ')) + '</div></div>' +
+      '<div class="field"><div class="field-label">Distribution</div><div class="field-value">' + escapeHtml(a.distribution || 'N/A') + '</div></div>' +
+      '<div class="field"><div class="field-label">Status</div><div class="field-value">' + escapeHtml(a.status || 'N/A') + '</div></div>' +
+      '<div class="field"><div class="field-label">Description</div><div class="field-value">' + escapeHtml(a.description) + '</div></div>' +
+      (a.url ? '<div class="field"><a href="' + escapeHtml(a.url) + '" target="_blank">View source</a></div>' : '');
+  } catch (e) {
+    console.error('Failed to load action detail:', e);
+  }
+}
+
+// --- Alerts ---
+async function loadAlertRules() {
+  try {
+    const rules = await fetch(API + '/api/alerts/rules').then(r => r.json());
+    const container = document.getElementById('alertRulesList');
+    container.innerHTML = '';
+    if (rules.length === 0) {
+      container.innerHTML = '<p style="color:var(--gray-500)">No alert rules yet. Create one to get started.</p>';
+      return;
+    }
+    rules.forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'alert-rule-card';
+      div.innerHTML =
+        '<div class="info"><h4>' + escapeHtml(r.name) + (r.active ? '' : ' <span style="color:var(--gray-500)">(paused)</span>') + '</h4>' +
+        '<div class="keywords">Keywords: ' + escapeHtml(r.keywords.join(', ')) + '</div></div>' +
+        '<div class="actions">' +
+        '<button class="btn btn-sm btn-outline" onclick="toggleRule(\'' + escapeHtml(r.id) + '\', ' + !r.active + ')">' + (r.active ? 'Pause' : 'Activate') + '</button>' +
+        '<button class="btn btn-sm btn-danger" onclick="deleteRule(\'' + escapeHtml(r.id) + '\')">Delete</button>' +
+        '</div>';
+      container.appendChild(div);
+    });
+  } catch (e) {
+    console.error('Failed to load rules:', e);
+  }
+}
+
+async function loadAlertMatches() {
+  try {
+    const matches = await fetch(API + '/api/alerts/matches').then(r => r.json());
+    const container = document.getElementById('alertMatchesList');
+    container.innerHTML = '';
+    if (matches.length === 0) {
+      container.innerHTML = '<p style="color:var(--gray-500)">No matches yet.</p>';
+      return;
+    }
+    matches.forEach(m => {
+      const div = document.createElement('div');
+      div.className = 'match-card' + (m.read ? '' : ' unread');
+      div.innerHTML =
+        '<div class="match-info">' +
+        '<div class="title">Action: ' + escapeHtml(m.action_id) + '</div>' +
+        '<div class="meta">Keywords: ' + escapeHtml(m.matched_keywords.join(', ')) + ' | ' + escapeHtml(m.matched_at) + '</div></div>' +
+        (m.read ? '' : '<button class="btn btn-sm btn-outline" onclick="markRead(\'' + escapeHtml(m.id) + '\')">Mark Read</button>');
+      container.appendChild(div);
+    });
+  } catch (e) {
+    console.error('Failed to load matches:', e);
+  }
+}
+
+function showCreateRuleModal() {
+  document.getElementById('ruleName').value = '';
+  document.getElementById('ruleKeywords').value = '';
+  document.getElementById('ruleCategory').value = '';
+  document.getElementById('ruleModal').classList.add('active');
+}
+function closeRuleModal() {
+  document.getElementById('ruleModal').classList.remove('active');
+}
+
+async function saveRule() {
+  const name = document.getElementById('ruleName').value.trim();
+  const kws = document.getElementById('ruleKeywords').value.split(',').map(k => k.trim()).filter(Boolean);
+  const cat = document.getElementById('ruleCategory').value;
+  if (!name || kws.length === 0) return alert('Name and keywords required');
+
+  const body = { name, keywords: kws };
+  if (cat) body.product_categories = [cat];
+
+  await fetch(API + '/api/alerts/rules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  closeRuleModal();
+  loadAlertRules();
+}
+
+async function deleteRule(id) {
+  if (!confirm('Delete this rule?')) return;
+  await fetch(API + '/api/alerts/rules/' + id, { method: 'DELETE' });
+  loadAlertRules();
+}
+
+async function toggleRule(id, active) {
+  await fetch(API + '/api/alerts/rules/' + id, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active }),
+  });
+  loadAlertRules();
+}
+
+async function markRead(id) {
+  await fetch(API + '/api/alerts/matches/' + id + '/read', { method: 'PUT' });
+  loadAlertMatches();
+  loadDashboard();
+}
+
+// --- Ingest ---
+async function triggerIngest() {
+  const btn = document.getElementById('ingestBtn');
+  btn.textContent = 'Syncing...';
+  btn.disabled = true;
+  try {
+    const result = await fetch(API + '/api/ingest', { method: 'POST' }).then(r => r.json());
+    alert('Sync complete. New actions: ' + (result.new_actions || 0) + ', New alerts: ' + (result.new_alert_matches || 0));
+    loadDashboard();
+    loadActions();
+    loadAlertMatches();
+  } catch (e) {
+    alert('Sync failed: ' + e.message);
+  } finally {
+    btn.textContent = 'Sync Now';
+    btn.disabled = false;
+  }
+}
+
+// --- Settings ---
+function saveSettings() {
+  const key = document.getElementById('settingsApiKey').value.trim();
+  localStorage.setItem('fda_watch_api_key', key);
+  alert('Settings saved (client-side only). API key is sent with sync requests.');
+}
+
+// --- Populate dropdowns ---
+async function loadReference() {
+  try {
+    const [cats, viols] = await Promise.all([
+      fetch(API + '/api/reference/product-categories').then(r => r.json()),
+      fetch(API + '/api/reference/violation-types').then(r => r.json()),
+    ]);
+    const enfCat = document.getElementById('enfCategory');
+    const ruleCat = document.getElementById('ruleCategory');
+    cats.forEach(c => {
+      enfCat.innerHTML += '<option value="' + escapeHtml(c.value) + '">' + escapeHtml(c.label) + '</option>';
+      ruleCat.innerHTML += '<option value="' + escapeHtml(c.value) + '">' + escapeHtml(c.label) + '</option>';
+    });
+    const enfViol = document.getElementById('enfViolation');
+    viols.forEach(v => {
+      enfViol.innerHTML += '<option value="' + escapeHtml(v.value) + '">' + escapeHtml(v.label) + '</option>';
+    });
+    const enfSev = document.getElementById('enfSeverity');
+    ['class_i', 'class_ii', 'class_iii', 'warning', 'advisory'].forEach(s => {
+      enfSev.innerHTML += '<option value="' + s + '">' + escapeHtml(s.replace('_', ' ').toUpperCase()) + '</option>';
+    });
+  } catch (e) {
+    console.error('Failed to load reference data:', e);
+  }
+}
+
+// --- Search on Enter ---
+document.getElementById('enfSearch').addEventListener('keyup', (e) => {
+  if (e.key === 'Enter') { enfOffset = 0; loadActions(); }
+});
+
+// --- Init ---
+loadReference();
+loadDashboard();
+loadActions();
+loadAlertRules();
+loadAlertMatches();
+</script>
+</body>
+</html>
