@@ -37,7 +37,6 @@ class Severity(str, Enum):
 class SourceType(str, Enum):
     OPENFDA_ENFORCEMENT = "openfda_enforcement"
     FDA_WARNING_LETTER = "fda_warning_letter"
-    NAD_DECISION = "nad_decision"
     FTC_ACTION = "ftc_action"
     CLASS_ACTION = "class_action"
     PROP_65 = "prop_65"

@@ -1,7 +1,7 @@
 """Tests for data models."""
 
 from src.models.enums import ProductCategory, Severity, SourceType, ViolationType
-from src.models.enforcement import RegulatoryAction, WarningLetterMeta, NADCase
+from src.models.enforcement import RegulatoryAction, WarningLetterMeta
 from src.models.alerts import AlertRule, AlertMatch
 
 
@@ -53,21 +53,6 @@ def test_warning_letter_meta():
     )
     assert letter.close_out_date is None
     assert letter.company == "Supplement Co"
-
-
-def test_nad_case():
-    case = NADCase(
-        case_id="nad-001",
-        advertiser="Brand X",
-        product="Skin Cream",
-        claims_at_issue="Anti-aging claims",
-        decision="Modified",
-        date="2025-01-20",
-        product_categories=[ProductCategory.COSMETIC],
-        violation_types=[ViolationType.UNSUBSTANTIATED_CLAIM],
-    )
-    assert case.challenger is None
-    assert case.decision == "Modified"
 
 
 def test_alert_rule():

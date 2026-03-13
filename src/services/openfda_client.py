@@ -60,7 +60,7 @@ def _map_record(record: dict, endpoint: str) -> RegulatoryAction:
         violation_types=[],  # Filled in by classifier
         severity=_map_severity(record.get("classification", "")),
         date=_parse_date(record.get("report_date", "")),
-        url=f"https://api.fda.gov/food/enforcement.json?search=recall_number:{recall_number}"
+        url=f"https://api.fda.gov/{endpoint}/enforcement.json?search=recall_number:%22{recall_number}%22&limit=1"
         if recall_number
         else None,
         status=record.get("status", None),

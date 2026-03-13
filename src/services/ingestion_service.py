@@ -11,6 +11,8 @@ from src.services.warning_letter_client import fetch_warning_letters
 from src.services.classifier import ViolationClassifier
 from src.services.alert_service import AlertService
 from src.services.search_service import SearchService
+from src.integrations.ftc_client import fetch_ftc_cases
+from src.integrations.classaction_client import fetch_classaction_lawsuits
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,8 @@ class IngestionService:
         """Run full ingestion pipeline.
 
         Args:
-            source: Optional specific source to ingest ("openfda", "warning_letters").
+            source: Optional specific source to ingest
+                    ("openfda", "warning_letters", "ftc", "classaction").
                     If None, ingests from all sources.
 
         Returns:
@@ -79,6 +82,16 @@ class IngestionService:
             actions = await self._ingest_warning_letters()
             all_new_actions.extend(actions)
             summary["sources"]["warning_letters"] = len(actions)
+
+        if source is None or source == "ftc":
+            actions = await self._ingest_ftc()
+            all_new_actions.extend(actions)
+            summary["sources"]["ftc"] = len(actions)
+
+        if source is None or source == "classaction":
+            actions = await self._ingest_classaction()
+            all_new_actions.extend(actions)
+            summary["sources"]["classaction"] = len(actions)
 
         # Classify all new actions
         self.classifier.classify_batch(all_new_actions)
@@ -139,6 +152,34 @@ class IngestionService:
             self._save_letters(letters)
 
         self._sync_state["warning_letters_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_ftc(self) -> list[RegulatoryAction]:
+        """Fetch FTC enforcement cases from ftc.gov."""
+        date_from = self._sync_state.get("ftc_last_fetch")
+        try:
+            actions = await fetch_ftc_cases(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch FTC cases: %s", e)
+            return []
+
+        self._sync_state["ftc_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_classaction(self) -> list[RegulatoryAction]:
+        """Fetch class action lawsuits."""
+        date_from = self._sync_state.get("classaction_last_fetch")
+        try:
+            actions = await fetch_classaction_lawsuits(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch class actions: %s", e)
+            return []
+
+        self._sync_state["classaction_last_fetch"] = (
             datetime.now(timezone.utc).strftime("%Y-%m-%d")
         )
         return actions

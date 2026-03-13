@@ -116,13 +116,18 @@ tr:hover td { background: var(--red-50); }
 .settings-section label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 0.25rem; }
 .settings-section input { padding: 0.5rem; border: 1px solid var(--gray-300); border-radius: 6px; width: 100%; max-width: 400px; }
 
-/* Detail panel */
-.detail-panel { background: white; border: 1px solid var(--gray-200); border-radius: 8px; padding: 1.25rem; margin-top: 1rem; }
-.detail-panel h3 { margin-bottom: 0.75rem; }
-.detail-panel .field { margin-bottom: 0.5rem; }
-.detail-panel .field-label { font-size: 0.8rem; color: var(--gray-500); text-transform: uppercase; }
-.detail-panel .field-value { font-size: 0.95rem; }
-.close-detail { float: right; cursor: pointer; font-size: 1.2rem; color: var(--gray-500); background: none; border: none; }
+/* Detail modal */
+.detail-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200; justify-content: center; align-items: flex-start; padding-top: 5vh; overflow-y: auto; }
+.detail-overlay.active { display: flex; }
+.detail-modal { background: white; border-radius: 12px; padding: 1.75rem; width: 92%; max-width: 720px; margin-bottom: 5vh; box-shadow: 0 20px 60px rgba(0,0,0,0.15); position: relative; animation: detailSlideIn 0.2s ease-out; }
+@keyframes detailSlideIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+.detail-modal h3 { margin-bottom: 1rem; padding-right: 2rem; line-height: 1.4; }
+.detail-modal .field { margin-bottom: 0.65rem; }
+.detail-modal .field-label { font-size: 0.75rem; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 0.15rem; }
+.detail-modal .field-value { font-size: 0.95rem; line-height: 1.5; }
+.detail-modal .field-value.description { max-height: 200px; overflow-y: auto; white-space: pre-wrap; }
+.close-detail { position: absolute; top: 1rem; right: 1rem; cursor: pointer; font-size: 1.5rem; color: var(--gray-500); background: none; border: none; width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+.close-detail:hover { background: var(--gray-100); color: var(--gray-900); }
 
 /* Responsive */
 @media (max-width: 768px) {
@@ -190,14 +195,31 @@ tr:hover td { background: var(--red-50); }
         <button id="enfNext" onclick="changePage(1)" disabled>Next &raquo;</button>
       </div>
     </div>
-    <div id="actionDetail" class="detail-panel" style="display:none"></div>
   </div>
 
-  <!-- Litigation (Phase 2) -->
+  <!-- Litigation -->
   <div class="panel" id="panel-litigation">
-    <div style="text-align:center;padding:3rem;color:var(--gray-500)">
-      <h2>Litigation Tracking</h2>
-      <p style="margin-top:0.5rem">NAD decisions, FTC actions, and class action lawsuits coming in Phase 2.</p>
+    <div class="toolbar">
+      <input type="text" id="litSearch" placeholder="Search litigation...">
+      <select id="litSource">
+        <option value="">All Sources</option>
+        <option value="ftc_action">FTC Actions</option>
+        <option value="class_action">Class Actions</option>
+      </select>
+      <select id="litCategory"><option value="">All Categories</option></select>
+      <select id="litViolation"><option value="">All Violations</option></select>
+      <button class="btn btn-outline" onclick="loadLitigation()">Filter</button>
+    </div>
+    <table id="litigationTable">
+      <thead><tr><th>Date</th><th>Company</th><th>Title</th><th>Source</th><th>Status</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="pagination">
+      <span id="litPagInfo">-</span>
+      <div>
+        <button id="litPrev" onclick="changeLitPage(-1)" disabled>&laquo; Prev</button>
+        <button id="litNext" onclick="changeLitPage(1)" disabled>Next &raquo;</button>
+      </div>
     </div>
   </div>
 
@@ -229,6 +251,11 @@ tr:hover td { background: var(--red-50); }
     </div>
   </div>
 
+</div>
+
+<!-- Action Detail Modal -->
+<div class="detail-overlay" id="actionDetailOverlay" onclick="if(event.target===this)closeActionDetail()">
+  <div class="detail-modal" id="actionDetail"></div>
 </div>
 
 <!-- Create Rule Modal -->
@@ -398,27 +425,155 @@ function changePage(dir) {
   loadActions();
 }
 
+function buildSourceUrl(a) {
+  // Build a proper source URL based on the source type and source_id
+  if (a.source === 'openfda_enforcement' && a.source_id) {
+    // Determine food vs drug from categories
+    const endpoint = (a.product_categories || []).includes('otc_drug') ? 'drug' : 'food';
+    return 'https://api.fda.gov/' + endpoint + '/enforcement.json?search=recall_number:%22' + encodeURIComponent(a.source_id) + '%22&limit=1';
+  }
+  if (a.source === 'fda_warning_letter' && a.url) {
+    return a.url;
+  }
+  if (a.url) return a.url;
+  return '';
+}
+
+function buildSourceLabel(a) {
+  if (a.source === 'openfda_enforcement') return 'View on openFDA (Recall #' + escapeHtml(a.source_id) + ')';
+  if (a.source === 'fda_warning_letter') return 'View Warning Letter';
+  if (a.source === 'ftc_action') return 'View FTC Case';
+  if (a.source === 'class_action') return 'View Case Details';
+  return 'View source';
+}
+
 async function showActionDetail(id) {
   try {
     const a = await fetch(API + '/api/actions/' + encodeURIComponent(id)).then(r => r.json());
     const panel = document.getElementById('actionDetail');
-    panel.style.display = 'block';
-    panel.innerHTML =
-      '<button class="close-detail" onclick="this.parentElement.style.display=\'none\'">&times;</button>' +
+    const sourceUrl = buildSourceUrl(a);
+    const sourceLabel = buildSourceLabel(a);
+
+    let html =
+      '<button class="close-detail" onclick="closeActionDetail()">&times;</button>' +
       '<h3>' + escapeHtml(a.title) + '</h3>' +
       '<div class="field"><div class="field-label">Company</div><div class="field-value">' + escapeHtml(a.company) + '</div></div>' +
       '<div class="field"><div class="field-label">Date</div><div class="field-value">' + escapeHtml(a.date) + '</div></div>' +
-      '<div class="field"><div class="field-label">Severity</div><div class="field-value"><span class="severity-badge severity-' + escapeHtml(a.severity) + '">' + escapeHtml(a.severity ? a.severity.replace('_', ' ').toUpperCase() : '') + '</span></div></div>' +
+      '<div class="field"><div class="field-label">Severity</div><div class="field-value"><span class="severity-badge severity-' + escapeHtml(a.severity) + '">' + escapeHtml(a.severity ? a.severity.replace('_', ' ').toUpperCase() : '') + '</span></div></div>';
+
+    if (a.source_id) {
+      html += '<div class="field"><div class="field-label">Record ID</div><div class="field-value">' + escapeHtml(a.source_id) + '</div></div>';
+    }
+
+    html +=
       '<div class="field"><div class="field-label">Violation Types</div><div class="field-value">' + escapeHtml((a.violation_types || []).join(', ')) + '</div></div>' +
       '<div class="field"><div class="field-label">Categories</div><div class="field-value">' + escapeHtml((a.product_categories || []).join(', ')) + '</div></div>' +
       '<div class="field"><div class="field-label">Distribution</div><div class="field-value">' + escapeHtml(a.distribution || 'N/A') + '</div></div>' +
       '<div class="field"><div class="field-label">Status</div><div class="field-value">' + escapeHtml(a.status || 'N/A') + '</div></div>' +
-      '<div class="field"><div class="field-label">Description</div><div class="field-value">' + escapeHtml(a.description) + '</div></div>' +
-      (a.url ? '<div class="field"><a href="' + escapeHtml(a.url) + '" target="_blank">View source</a></div>' : '');
+      '<div class="field"><div class="field-label">Description</div><div class="field-value description">' + escapeHtml(a.description) + '</div></div>';
+
+    if (sourceUrl) {
+      html += '<div class="field"><a href="' + escapeHtml(sourceUrl) + '" target="_blank">' + sourceLabel + ' &rarr;</a></div>';
+    }
+
+    panel.innerHTML = html;
+    document.getElementById('actionDetailOverlay').classList.add('active');
   } catch (e) {
     console.error('Failed to load action detail:', e);
   }
 }
+
+function closeActionDetail() {
+  document.getElementById('actionDetailOverlay').classList.remove('active');
+}
+
+// --- Litigation ---
+let litOffset = 0;
+const LIT_LIMIT = 50;
+let litTotal = 0;
+
+async function loadLitigation() {
+  const params = new URLSearchParams();
+  const q = document.getElementById('litSearch').value.trim();
+  const src = document.getElementById('litSource').value;
+  const cat = document.getElementById('litCategory').value;
+  const vio = document.getElementById('litViolation').value;
+
+  if (q) params.set('q', q);
+  if (src) params.set('source', src);
+  if (cat) params.set('category', cat);
+  if (vio) params.set('violation_type', vio);
+  params.set('offset', litOffset);
+  params.set('limit', LIT_LIMIT);
+
+  try {
+    const data = await fetch(API + '/api/litigation?' + params).then(r => r.json());
+    litTotal = data.total;
+
+    const tbody = document.querySelector('#litigationTable tbody');
+    tbody.innerHTML = '';
+    (data.results || []).forEach(a => {
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = () => showLitigationDetail(a.id);
+      const srcLabel = (a.source || '').replace(/_/g, ' ').toUpperCase();
+      const srcClass = a.source === 'ftc_action' ? 'severity-warning' : 'severity-class_iii';
+      tr.innerHTML =
+        '<td>' + escapeHtml(a.date) + '</td>' +
+        '<td>' + escapeHtml(a.company) + '</td>' +
+        '<td>' + escapeHtml(a.title ? a.title.substring(0, 80) : '') + '</td>' +
+        '<td><span class="severity-badge ' + srcClass + '">' + escapeHtml(srcLabel) + '</span></td>' +
+        '<td>' + escapeHtml(a.status || 'N/A') + '</td>';
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById('litPagInfo').textContent =
+      (litTotal === 0 ? 'No results' : (litOffset + 1) + '-' + Math.min(litOffset + LIT_LIMIT, litTotal) + ' of ' + litTotal);
+    document.getElementById('litPrev').disabled = litOffset === 0;
+    document.getElementById('litNext').disabled = litOffset + LIT_LIMIT >= litTotal;
+  } catch (e) {
+    console.error('Failed to load litigation:', e);
+  }
+}
+
+function changeLitPage(dir) {
+  litOffset = Math.max(0, litOffset + dir * LIT_LIMIT);
+  loadLitigation();
+}
+
+async function showLitigationDetail(id) {
+  try {
+    const a = await fetch(API + '/api/litigation/' + encodeURIComponent(id)).then(r => r.json());
+    const panel = document.getElementById('actionDetail');
+    const srcLabel = (a.source || '').replace(/_/g, ' ').toUpperCase();
+    const sourceUrl = buildSourceUrl(a);
+    const sourceLinkLabel = buildSourceLabel(a);
+
+    let html =
+      '<button class="close-detail" onclick="closeActionDetail()">&times;</button>' +
+      '<h3>' + escapeHtml(a.title) + '</h3>' +
+      '<div class="field"><div class="field-label">Source</div><div class="field-value">' + escapeHtml(srcLabel) + '</div></div>' +
+      '<div class="field"><div class="field-label">Company / Respondent</div><div class="field-value">' + escapeHtml(a.company) + '</div></div>' +
+      '<div class="field"><div class="field-label">Date</div><div class="field-value">' + escapeHtml(a.date) + '</div></div>' +
+      '<div class="field"><div class="field-label">Status / Decision</div><div class="field-value">' + escapeHtml(a.status || 'N/A') + '</div></div>' +
+      '<div class="field"><div class="field-label">Violation Types</div><div class="field-value">' + escapeHtml((a.violation_types || []).join(', ')) + '</div></div>' +
+      '<div class="field"><div class="field-label">Categories</div><div class="field-value">' + escapeHtml((a.product_categories || []).join(', ')) + '</div></div>' +
+      '<div class="field"><div class="field-label">Description</div><div class="field-value description">' + escapeHtml(a.description) + '</div></div>';
+
+    if (sourceUrl) {
+      html += '<div class="field"><a href="' + escapeHtml(sourceUrl) + '" target="_blank">' + sourceLinkLabel + ' &rarr;</a></div>';
+    }
+
+    panel.innerHTML = html;
+    document.getElementById('actionDetailOverlay').classList.add('active');
+  } catch (e) {
+    console.error('Failed to load litigation detail:', e);
+  }
+}
+
+document.getElementById('litSearch').addEventListener('keyup', (e) => {
+  if (e.key === 'Enter') { litOffset = 0; loadLitigation(); }
+});
 
 // --- Alerts ---
 async function loadAlertRules() {
@@ -460,10 +615,10 @@ async function loadAlertMatches() {
       const div = document.createElement('div');
       div.className = 'match-card' + (m.read ? '' : ' unread');
       div.innerHTML =
-        '<div class="match-info">' +
-        '<div class="title">Action: ' + escapeHtml(m.action_id) + '</div>' +
+        '<div class="match-info" style="cursor:pointer" onclick="viewMatchAction(\'' + escapeHtml(m.action_id) + '\')">' +
+        '<div class="title" style="color:var(--red-600)">Action: ' + escapeHtml(m.action_id) + '</div>' +
         '<div class="meta">Keywords: ' + escapeHtml(m.matched_keywords.join(', ')) + ' | ' + escapeHtml(m.matched_at) + '</div></div>' +
-        (m.read ? '' : '<button class="btn btn-sm btn-outline" onclick="markRead(\'' + escapeHtml(m.id) + '\')">Mark Read</button>');
+        (m.read ? '' : '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();markRead(\'' + escapeHtml(m.id) + '\')">Mark Read</button>');
       container.appendChild(div);
     });
   } catch (e) {
@@ -514,6 +669,15 @@ async function toggleRule(id, active) {
   loadAlertRules();
 }
 
+function viewMatchAction(actionId) {
+  // Switch to Enforcement tab and show action detail
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+  document.querySelector('[data-tab="enforcement"]').classList.add('active');
+  document.getElementById('panel-enforcement').classList.add('active');
+  showActionDetail(actionId);
+}
+
 async function markRead(id) {
   await fetch(API + '/api/alerts/matches/' + id + '/read', { method: 'PUT' });
   loadAlertMatches();
@@ -555,13 +719,19 @@ async function loadReference() {
     ]);
     const enfCat = document.getElementById('enfCategory');
     const ruleCat = document.getElementById('ruleCategory');
+    const litCat = document.getElementById('litCategory');
     cats.forEach(c => {
-      enfCat.innerHTML += '<option value="' + escapeHtml(c.value) + '">' + escapeHtml(c.label) + '</option>';
-      ruleCat.innerHTML += '<option value="' + escapeHtml(c.value) + '">' + escapeHtml(c.label) + '</option>';
+      const opt = '<option value="' + escapeHtml(c.value) + '">' + escapeHtml(c.label) + '</option>';
+      enfCat.innerHTML += opt;
+      ruleCat.innerHTML += opt;
+      litCat.innerHTML += opt;
     });
     const enfViol = document.getElementById('enfViolation');
+    const litViol = document.getElementById('litViolation');
     viols.forEach(v => {
-      enfViol.innerHTML += '<option value="' + escapeHtml(v.value) + '">' + escapeHtml(v.label) + '</option>';
+      const opt = '<option value="' + escapeHtml(v.value) + '">' + escapeHtml(v.label) + '</option>';
+      enfViol.innerHTML += opt;
+      litViol.innerHTML += opt;
     });
     const enfSev = document.getElementById('enfSeverity');
     ['class_i', 'class_ii', 'class_iii', 'warning', 'advisory'].forEach(s => {
@@ -572,15 +742,22 @@ async function loadReference() {
   }
 }
 
-// --- Search on Enter ---
+// --- Keyboard shortcuts ---
 document.getElementById('enfSearch').addEventListener('keyup', (e) => {
   if (e.key === 'Enter') { enfOffset = 0; loadActions(); }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeActionDetail();
+    closeRuleModal();
+  }
 });
 
 // --- Init ---
 loadReference();
 loadDashboard();
 loadActions();
+loadLitigation();
 loadAlertRules();
 loadAlertMatches();
 </script>

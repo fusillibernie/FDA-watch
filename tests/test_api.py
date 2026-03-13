@@ -103,13 +103,32 @@ def test_reference_endpoints(client):
     assert any(c["value"] == "food" for c in cats)
 
 
-def test_litigation_placeholder(client):
+def test_litigation_empty(client):
     resp = client.get("/api/litigation")
     assert resp.status_code == 200
     assert resp.json()["total"] == 0
+    assert resp.json()["results"] == []
 
+
+def test_litigation_not_found(client):
     resp = client.get("/api/litigation/test-id")
-    assert resp.status_code == 501
+    assert resp.status_code == 404
+
+
+def test_litigation_with_source_filter(client):
+    resp = client.get("/api/litigation?source=ftc_action")
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 0
+
+
+def test_litigation_sources_reference(client):
+    resp = client.get("/api/reference/litigation-sources")
+    assert resp.status_code == 200
+    sources = resp.json()
+    assert len(sources) == 2
+    values = {s["value"] for s in sources}
+    assert "ftc_action" in values
+    assert "class_action" in values
 
 
 def test_ingest_status(client):

@@ -4,7 +4,7 @@ import json
 import logging
 import re
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.models.enums import ProductCategory, Severity, SourceType, ViolationType
@@ -122,8 +122,6 @@ class SearchService:
         self._ensure_loaded()
 
         now = datetime.now()
-        seven_days_ago = (now.replace(hour=0, minute=0, second=0, microsecond=0)).__format__("%Y-%m-%d")
-        from datetime import timedelta
         seven_days_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
 
         by_violation = Counter[str]()

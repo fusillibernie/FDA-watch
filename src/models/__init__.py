@@ -1,5 +1,5 @@
 from .enums import ProductCategory, ViolationType, Severity, SourceType
-from .enforcement import RegulatoryAction, WarningLetterMeta, NADCase
+from .enforcement import RegulatoryAction, WarningLetterMeta
 from .alerts import AlertRule, AlertMatch
 
 __all__ = [
@@ -9,7 +9,6 @@ __all__ = [
     "SourceType",
     "RegulatoryAction",
     "WarningLetterMeta",
-    "NADCase",
     "AlertRule",
     "AlertMatch",
 ]

@@ -36,7 +36,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.environ.get(
-        "CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+        "CORS_ORIGINS", "http://localhost:8000,http://localhost:8001,http://localhost:8002,http://localhost:8003,http://localhost:8004,http://127.0.0.1:8000,http://127.0.0.1:8004"
     ).split(","),
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,7 +82,7 @@ async def root():
 @limiter.limit("5/minute")
 async def trigger_ingest(
     request: Request,
-    source: str | None = Query(None, description="Specific source: openfda, warning_letters"),
+    source: str | None = Query(None, description="Specific source: openfda, warning_letters, ftc, classaction"),
 ):
     """Trigger data ingestion from FDA sources."""
     summary = await ingestion_service.ingest_all(source=source)
@@ -279,15 +279,71 @@ async def list_product_categories():
 
 
 # ---------------------------------------------------------------------------
-# Litigation (Phase 2 placeholder)
+# Litigation (Phase 2 — NAD, FTC, Class Action)
 # ---------------------------------------------------------------------------
+
+LITIGATION_SOURCES = {
+    SourceType.FTC_ACTION,
+    SourceType.CLASS_ACTION,
+}
 
 
 @app.get("/api/litigation")
-async def list_litigation():
-    return {"results": [], "total": 0, "message": "Litigation tracking coming in Phase 2"}
+async def list_litigation(
+    q: str | None = Query(None),
+    source: SourceType | None = Query(None),
+    category: ProductCategory | None = Query(None),
+    violation_type: ViolationType | None = Query(None),
+    company: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List litigation actions (NAD, FTC, Class Action) with filtering."""
+    # If a specific litigation source is given, use it; otherwise search all litigation sources
+    if source and source in LITIGATION_SOURCES:
+        results, total = search_service.search(
+            q=q, source=source, category=category, violation_type=violation_type,
+            company=company, date_from=date_from, date_to=date_to,
+            offset=offset, limit=limit,
+        )
+    else:
+        # Combine results from all litigation sources
+        all_results = []
+        for src in LITIGATION_SOURCES:
+            src_results, _ = search_service.search(
+                q=q, source=src, category=category, violation_type=violation_type,
+                company=company, date_from=date_from, date_to=date_to,
+                offset=0, limit=10000,
+            )
+            all_results.extend(src_results)
+        # Sort by date desc
+        all_results.sort(key=lambda a: a.date, reverse=True)
+        total = len(all_results)
+        results = all_results[offset : offset + limit]
+
+    return {
+        "results": [a.model_dump() for a in results],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
 
 
 @app.get("/api/litigation/{case_id}")
 async def get_litigation_case(case_id: str):
-    raise HTTPException(501, "Litigation tracking coming in Phase 2")
+    """Get a single litigation case by ID."""
+    action = search_service.get_action(case_id)
+    if not action or action.source not in LITIGATION_SOURCES:
+        raise HTTPException(404, "Litigation case not found")
+    return action.model_dump()
+
+
+@app.get("/api/reference/litigation-sources")
+async def list_litigation_sources():
+    """Return available litigation source types."""
+    return [
+        {"value": s.value, "label": s.name.replace("_", " ").title()}
+        for s in LITIGATION_SOURCES
+    ]

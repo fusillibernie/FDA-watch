@@ -34,16 +34,3 @@ class WarningLetterMeta(BaseModel):
     url: str | None = None
 
 
-class NADCase(BaseModel):
-    """NAD/NARB advertising case."""
-
-    case_id: str
-    advertiser: str
-    challenger: str | None = None
-    product: str
-    claims_at_issue: str
-    decision: str
-    date: str
-    product_categories: list[ProductCategory]
-    violation_types: list[ViolationType]
-    url: str | None = None
