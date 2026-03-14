@@ -170,6 +170,10 @@ tr:hover td { background: var(--red-50); }
       <div class="chart-card"><h3>Actions by Month</h3><div id="chartTimeline"></div></div>
       <div class="chart-card"><h3>Severity Breakdown</h3><div id="chartSeverity"></div></div>
     </div>
+    <div class="chart-row">
+      <div class="chart-card"><h3>Trends (6 Months)</h3><div id="chartTrends"></div></div>
+      <div class="chart-card"><h3>Emerging Trends</h3><div id="emergingTrends" style="font-size:0.9rem"></div></div>
+    </div>
     <div class="chart-card"><h3>Top Companies</h3>
       <table id="topCompaniesTable"><thead><tr><th>Company</th><th>Actions</th></tr></thead><tbody></tbody></table>
     </div>
@@ -183,6 +187,7 @@ tr:hover td { background: var(--red-50); }
       <select id="enfViolation"><option value="">All Violations</option></select>
       <select id="enfSeverity"><option value="">All Severities</option></select>
       <button class="btn btn-outline" onclick="loadActions()">Filter</button>
+      <button class="btn btn-outline" onclick="exportCSV('enforcement')">Export CSV</button>
     </div>
     <table id="actionsTable">
       <thead><tr><th>Date</th><th>Company</th><th>Title</th><th>Severity</th><th>Source</th></tr></thead>
@@ -205,10 +210,13 @@ tr:hover td { background: var(--red-50); }
         <option value="">All Sources</option>
         <option value="ftc_action">FTC Actions</option>
         <option value="class_action">Class Actions</option>
+        <option value="nad_decision">NAD Decisions</option>
+        <option value="state_ag">State AG Actions</option>
       </select>
       <select id="litCategory"><option value="">All Categories</option></select>
       <select id="litViolation"><option value="">All Violations</option></select>
       <button class="btn btn-outline" onclick="loadLitigation()">Filter</button>
+      <button class="btn btn-outline" onclick="exportCSV('litigation')">Export CSV</button>
     </div>
     <table id="litigationTable">
       <thead><tr><th>Date</th><th>Company</th><th>Title</th><th>Source</th><th>Status</th></tr></thead>
@@ -236,6 +244,28 @@ tr:hover td { background: var(--red-50); }
 
   <!-- Settings -->
   <div class="panel" id="panel-settings">
+    <div class="settings-section">
+      <h3>Scheduled Ingestion</h3>
+      <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:0.5rem">Automatically fetch new data at a set interval.</p>
+      <div class="form-group" style="display:flex;gap:1rem;align-items:center">
+        <label style="margin:0">Interval (hours):</label>
+        <select id="schedulerInterval" style="width:80px">
+          <option value="1">1</option><option value="2">2</option><option value="4">4</option>
+          <option value="6" selected>6</option><option value="8">8</option><option value="12">12</option><option value="24">24</option>
+        </select>
+        <label style="margin:0"><input type="checkbox" id="schedulerEnabled" checked> Enabled</label>
+        <button class="btn btn-outline btn-sm" onclick="saveScheduler()">Save</button>
+      </div>
+      <p style="font-size:0.85rem;color:var(--gray-500);margin-top:0.5rem">Next run: <span id="schedulerNext">-</span></p>
+    </div>
+    <div class="settings-section">
+      <h3>Authentication</h3>
+      <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:0.5rem">Required for write operations when FDA_WATCH_API_KEY is set on the server.</p>
+      <div class="form-group">
+        <input type="password" id="settingsAuthKey" placeholder="Enter API key for write access...">
+      </div>
+      <button class="btn btn-outline" onclick="saveAuthKey()">Save</button>
+    </div>
     <div class="settings-section">
       <h3>openFDA API Key</h3>
       <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:0.5rem">Optional. Increases rate limit from 40 to 240 req/min.</p>
@@ -273,6 +303,10 @@ tr:hover td { background: var(--red-50); }
     <div class="form-group">
       <label>Product Category (optional)</label>
       <select id="ruleCategory"><option value="">All</option></select>
+    </div>
+    <div class="form-group">
+      <label>Webhook URL (optional)</label>
+      <input type="url" id="ruleWebhook" placeholder="https://webhook.site/...">
     </div>
     <div class="form-actions">
       <button class="btn btn-outline" onclick="closeRuleModal()">Cancel</button>
@@ -362,15 +396,20 @@ async function loadDashboard() {
       }, { responsive: true, displayModeBar: false });
     }
 
-    // Top companies
+    // Top companies (clickable)
     const tbody = document.querySelector('#topCompaniesTable tbody');
     tbody.innerHTML = '';
     const companies = stats.top_companies || {};
     Object.entries(companies).slice(0, 10).forEach(([name, count]) => {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + escapeHtml(name) + '</td><td>' + escapeHtml(count) + '</td>';
+      tr.style.cursor = 'pointer';
+      tr.innerHTML = '<td><a href="#" style="color:var(--red-600)">' + escapeHtml(name) + '</a></td><td>' + escapeHtml(count) + '</td>';
+      tr.onclick = (e) => { e.preventDefault(); showCompanyProfile(name); };
       tbody.appendChild(tr);
     });
+
+    // Load trends
+    loadTrends();
   } catch (e) {
     console.error('Dashboard load failed:', e);
   }
@@ -444,6 +483,10 @@ function buildSourceLabel(a) {
   if (a.source === 'fda_warning_letter') return 'View Warning Letter';
   if (a.source === 'ftc_action') return 'View FTC Case';
   if (a.source === 'class_action') return 'View Case Details';
+  if (a.source === 'cpsc_recall') return 'View CPSC Recall';
+  if (a.source === 'prop_65') return 'View Prop 65 Notice';
+  if (a.source === 'nad_decision') return 'View NAD Decision';
+  if (a.source === 'state_ag') return 'View AG Press Release';
   return 'View source';
 }
 
@@ -476,8 +519,28 @@ async function showActionDetail(id) {
       html += '<div class="field"><a href="' + escapeHtml(sourceUrl) + '" target="_blank">' + sourceLabel + ' &rarr;</a></div>';
     }
 
+    // Related actions
+    html += '<div class="field" id="relatedActions"><div class="field-label">Related Actions</div><div class="field-value" style="color:var(--gray-500)">Loading...</div></div>';
+
     panel.innerHTML = html;
     document.getElementById('actionDetailOverlay').classList.add('active');
+
+    // Load related actions async
+    fetch(API + '/api/actions/' + encodeURIComponent(id) + '/related').then(r => r.json()).then(related => {
+      const container = document.getElementById('relatedActions');
+      if (!related || related.length === 0) {
+        container.querySelector('.field-value').textContent = 'No related actions found.';
+      } else {
+        container.querySelector('.field-value').innerHTML = related.map(r =>
+          '<div style="padding:0.3rem 0;border-bottom:1px solid var(--gray-200);cursor:pointer" onclick="closeActionDetail();showActionDetail(\'' + escapeHtml(r.id) + '\')">' +
+          '<span style="color:var(--gray-500);font-size:0.8rem">' + escapeHtml(r.date) + '</span> ' +
+          escapeHtml(r.title ? r.title.substring(0, 80) : '') + '</div>'
+        ).join('');
+      }
+    }).catch(() => {
+      const container = document.getElementById('relatedActions');
+      if (container) container.querySelector('.field-value').textContent = 'N/A';
+    });
   } catch (e) {
     console.error('Failed to load action detail:', e);
   }
@@ -630,6 +693,7 @@ function showCreateRuleModal() {
   document.getElementById('ruleName').value = '';
   document.getElementById('ruleKeywords').value = '';
   document.getElementById('ruleCategory').value = '';
+  document.getElementById('ruleWebhook').value = '';
   document.getElementById('ruleModal').classList.add('active');
 }
 function closeRuleModal() {
@@ -640,14 +704,16 @@ async function saveRule() {
   const name = document.getElementById('ruleName').value.trim();
   const kws = document.getElementById('ruleKeywords').value.split(',').map(k => k.trim()).filter(Boolean);
   const cat = document.getElementById('ruleCategory').value;
+  const webhook = document.getElementById('ruleWebhook').value.trim();
   if (!name || kws.length === 0) return alert('Name and keywords required');
 
   const body = { name, keywords: kws };
   if (cat) body.product_categories = [cat];
+  if (webhook) body.webhook_url = webhook;
 
   await fetch(API + '/api/alerts/rules', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(body),
   });
   closeRuleModal();
@@ -656,14 +722,14 @@ async function saveRule() {
 
 async function deleteRule(id) {
   if (!confirm('Delete this rule?')) return;
-  await fetch(API + '/api/alerts/rules/' + id, { method: 'DELETE' });
+  await fetch(API + '/api/alerts/rules/' + id, { method: 'DELETE', headers: getAuthHeaders() });
   loadAlertRules();
 }
 
 async function toggleRule(id, active) {
   await fetch(API + '/api/alerts/rules/' + id, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ active }),
   });
   loadAlertRules();
@@ -684,13 +750,118 @@ async function markRead(id) {
   loadDashboard();
 }
 
+// --- Export ---
+function exportCSV(type) {
+  const params = new URLSearchParams();
+  if (type === 'enforcement') {
+    const q = document.getElementById('enfSearch').value.trim();
+    const cat = document.getElementById('enfCategory').value;
+    const vio = document.getElementById('enfViolation').value;
+    const sev = document.getElementById('enfSeverity').value;
+    if (q) params.set('q', q);
+    if (cat) params.set('category', cat);
+    if (vio) params.set('violation_type', vio);
+    if (sev) params.set('severity', sev);
+  } else {
+    const q = document.getElementById('litSearch').value.trim();
+    const src = document.getElementById('litSource').value;
+    if (q) params.set('q', q);
+    if (src) params.set('source', src);
+  }
+  window.open(API + '/api/actions/export?' + params.toString(), '_blank');
+}
+
+// --- Trends ---
+async function loadTrends() {
+  try {
+    const data = await fetch(API + '/api/actions/trends').then(r => r.json());
+    const months = (data.monthly_counts || []).map(m => m.month);
+    const counts = (data.monthly_counts || []).map(m => m.count);
+    if (months.length > 0) {
+      Plotly.newPlot('chartTrends', [{
+        x: months, y: counts, type: 'scatter', mode: 'lines+markers',
+        line: { color: '#dc2626', width: 2 },
+        marker: { size: 6 }
+      }], {
+        margin: { t: 10, b: 40, l: 40, r: 10 },
+        height: 250,
+        xaxis: { tickangle: -45 },
+      }, { responsive: true, displayModeBar: false });
+    }
+
+    const container = document.getElementById('emergingTrends');
+    const emerging = data.emerging_patterns || [];
+    if (emerging.length === 0) {
+      container.innerHTML = '<p style="color:var(--gray-500)">No emerging trends detected.</p>';
+    } else {
+      container.innerHTML = emerging.slice(0, 5).map(e =>
+        '<div style="padding:0.4rem 0;border-bottom:1px solid var(--gray-200)">' +
+        '<strong>' + escapeHtml(e.violation_type.replace(/_/g, ' ')) + '</strong>' +
+        ' <span style="color:var(--red-600)">+' + escapeHtml(e.increase_pct) + '%</span>' +
+        ' <span style="color:var(--gray-500);font-size:0.8rem">(avg ' + escapeHtml(e.prior_avg) + ' &rarr; ' + escapeHtml(e.recent_avg) + '/mo)</span></div>'
+      ).join('');
+    }
+  } catch (e) {
+    console.error('Trends load failed:', e);
+  }
+}
+
+// --- Company Profile ---
+async function showCompanyProfile(name) {
+  try {
+    const profile = await fetch(API + '/api/companies/' + encodeURIComponent(name) + '/profile').then(r => r.json());
+    const panel = document.getElementById('actionDetail');
+
+    let html =
+      '<button class="close-detail" onclick="closeActionDetail()">&times;</button>' +
+      '<h3>' + escapeHtml(profile.company) + '</h3>' +
+      '<div class="field"><div class="field-label">Total Actions</div><div class="field-value">' + escapeHtml(profile.total_actions) + '</div></div>';
+
+    if (profile.date_range) {
+      html += '<div class="field"><div class="field-label">Date Range</div><div class="field-value">' +
+        escapeHtml(profile.date_range.earliest || 'N/A') + ' to ' + escapeHtml(profile.date_range.latest || 'N/A') + '</div></div>';
+    }
+
+    if (profile.violation_distribution) {
+      html += '<div class="field"><div class="field-label">Violation Types</div><div class="field-value">' +
+        Object.entries(profile.violation_distribution).map(([k, v]) =>
+          escapeHtml(k.replace(/_/g, ' ')) + ': ' + escapeHtml(v)
+        ).join(', ') + '</div></div>';
+    }
+
+    if (profile.source_breakdown) {
+      html += '<div class="field"><div class="field-label">Sources</div><div class="field-value">' +
+        Object.entries(profile.source_breakdown).map(([k, v]) =>
+          escapeHtml(k.replace(/_/g, ' ')) + ': ' + escapeHtml(v)
+        ).join(', ') + '</div></div>';
+    }
+
+    // Recent actions list
+    const actions = (profile.actions || []).slice(0, 10);
+    if (actions.length > 0) {
+      html += '<div class="field"><div class="field-label">Recent Actions</div><div class="field-value">';
+      actions.forEach(a => {
+        html += '<div style="padding:0.3rem 0;border-bottom:1px solid var(--gray-200);cursor:pointer" onclick="closeActionDetail();showActionDetail(\'' + escapeHtml(a.id) + '\')">' +
+          '<span style="color:var(--gray-500);font-size:0.8rem">' + escapeHtml(a.date) + '</span> ' +
+          escapeHtml(a.title ? a.title.substring(0, 80) : '') + '</div>';
+      });
+      html += '</div></div>';
+    }
+
+    panel.innerHTML = html;
+    document.getElementById('actionDetailOverlay').classList.add('active');
+  } catch (e) {
+    console.error('Company profile failed:', e);
+  }
+}
+
 // --- Ingest ---
 async function triggerIngest() {
   const btn = document.getElementById('ingestBtn');
   btn.textContent = 'Syncing...';
   btn.disabled = true;
   try {
-    const result = await fetch(API + '/api/ingest', { method: 'POST' }).then(r => r.json());
+    const result = await fetch(API + '/api/ingest', { method: 'POST', headers: getAuthHeaders() }).then(r => r.json());
     alert('Sync complete. New actions: ' + (result.new_actions || 0) + ', New alerts: ' + (result.new_alert_matches || 0));
     loadDashboard();
     loadActions();
@@ -704,10 +875,51 @@ async function triggerIngest() {
 }
 
 // --- Settings ---
+function getAuthHeaders() {
+  const key = localStorage.getItem('fda_watch_auth_key') || '';
+  const headers = { 'Content-Type': 'application/json' };
+  if (key) headers['X-API-Key'] = key;
+  return headers;
+}
+
+function saveAuthKey() {
+  const key = document.getElementById('settingsAuthKey').value.trim();
+  localStorage.setItem('fda_watch_auth_key', key);
+  alert('Auth key saved locally.');
+}
+
 function saveSettings() {
   const key = document.getElementById('settingsApiKey').value.trim();
   localStorage.setItem('fda_watch_api_key', key);
   alert('Settings saved (client-side only). API key is sent with sync requests.');
+}
+
+async function loadSchedulerStatus() {
+  try {
+    const status = await fetch(API + '/api/scheduler/status').then(r => r.json());
+    document.getElementById('schedulerInterval').value = status.interval_hours || 6;
+    document.getElementById('schedulerEnabled').checked = status.enabled;
+    document.getElementById('schedulerNext').textContent = status.next_run
+      ? new Date(status.next_run).toLocaleString()
+      : (status.running ? 'Pending' : 'Disabled');
+  } catch (e) {
+    console.error('Failed to load scheduler status:', e);
+  }
+}
+
+async function saveScheduler() {
+  const interval = parseInt(document.getElementById('schedulerInterval').value);
+  const enabled = document.getElementById('schedulerEnabled').checked;
+  try {
+    await fetch(API + '/api/scheduler/config', {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ interval_hours: interval, enabled }),
+    });
+    loadSchedulerStatus();
+  } catch (e) {
+    alert('Failed to update scheduler: ' + e.message);
+  }
 }
 
 // --- Populate dropdowns ---
@@ -760,6 +972,7 @@ loadActions();
 loadLitigation();
 loadAlertRules();
 loadAlertMatches();
+loadSchedulerStatus();
 </script>
 </body>
 </html>

@@ -40,3 +40,6 @@ class SourceType(str, Enum):
     FTC_ACTION = "ftc_action"
     CLASS_ACTION = "class_action"
     PROP_65 = "prop_65"
+    CPSC_RECALL = "cpsc_recall"
+    NAD_DECISION = "nad_decision"
+    STATE_AG = "state_ag"

@@ -3,6 +3,8 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from src.models.enums import ProductCategory, Severity, SourceType, ViolationType
 from src.models.enforcement import RegulatoryAction
 from src.services.alert_service import AlertService
@@ -58,7 +60,8 @@ def test_delete_rule():
         assert svc.delete_rule("nonexistent") is False
 
 
-def test_check_actions_creates_matches():
+@pytest.mark.asyncio
+async def test_check_actions_creates_matches():
     with tempfile.TemporaryDirectory() as tmpdir:
         svc = AlertService(data_dir=Path(tmpdir))
         svc.create_rule(name="Peanut", keywords=["peanut"])
@@ -68,29 +71,31 @@ def test_check_actions_creates_matches():
             _make_action("a2", "Recall", "Contains undeclared soy"),
         ]
 
-        matches = svc.check_actions(actions)
+        matches = await svc.check_actions(actions)
         assert len(matches) == 1
         assert matches[0].action_id == "a1"
         assert "peanut" in matches[0].matched_keywords
 
 
-def test_no_duplicate_matches():
+@pytest.mark.asyncio
+async def test_no_duplicate_matches():
     with tempfile.TemporaryDirectory() as tmpdir:
         svc = AlertService(data_dir=Path(tmpdir))
         svc.create_rule(name="Test", keywords=["peanut"])
 
         actions = [_make_action("a1", "Recall", "Undeclared peanut")]
-        svc.check_actions(actions)
+        await svc.check_actions(actions)
         # Run again with same action
-        matches = svc.check_actions(actions)
+        matches = await svc.check_actions(actions)
         assert len(matches) == 0
 
 
-def test_mark_read_and_unread_count():
+@pytest.mark.asyncio
+async def test_mark_read_and_unread_count():
     with tempfile.TemporaryDirectory() as tmpdir:
         svc = AlertService(data_dir=Path(tmpdir))
         svc.create_rule(name="Test", keywords=["peanut"])
-        svc.check_actions([_make_action("a1", "Recall", "Peanut recall")])
+        await svc.check_actions([_make_action("a1", "Recall", "Peanut recall")])
 
         assert svc.unread_count() == 1
         matches = svc.list_matches()
@@ -98,7 +103,8 @@ def test_mark_read_and_unread_count():
         assert svc.unread_count() == 0
 
 
-def test_scope_filtering_by_category():
+@pytest.mark.asyncio
+async def test_scope_filtering_by_category():
     with tempfile.TemporaryDirectory() as tmpdir:
         svc = AlertService(data_dir=Path(tmpdir))
         svc.create_rule(
@@ -109,15 +115,48 @@ def test_scope_filtering_by_category():
 
         # Food action should NOT match a cosmetic-scoped rule
         actions = [_make_action("a1", "Recall of food", "Food recall notice")]
-        matches = svc.check_actions(actions)
+        matches = await svc.check_actions(actions)
         assert len(matches) == 0
 
 
-def test_regex_keyword():
+@pytest.mark.asyncio
+async def test_regex_keyword():
     with tempfile.TemporaryDirectory() as tmpdir:
         svc = AlertService(data_dir=Path(tmpdir))
         svc.create_rule(name="Allergens regex", keywords=[r"undeclared \w+"])
 
         actions = [_make_action("a1", "Recall", "Contains undeclared sesame")]
-        matches = svc.check_actions(actions)
+        matches = await svc.check_actions(actions)
         assert len(matches) == 1
+
+
+@pytest.mark.asyncio
+async def test_webhook_fires_on_match():
+    """Webhook POST fires when a rule with webhook_url matches."""
+    import respx
+    import httpx
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        svc = AlertService(data_dir=Path(tmpdir))
+        svc.create_rule(
+            name="Webhook test",
+            keywords=["peanut"],
+            webhook_url="https://webhook.test/hook",
+        )
+
+        actions = [_make_action("a1", "Recall", "Contains undeclared peanut")]
+
+        with respx.mock:
+            webhook_route = respx.post("https://webhook.test/hook").mock(
+                return_value=httpx.Response(200)
+            )
+            matches = await svc.check_actions(actions)
+            assert len(matches) == 1
+            assert webhook_route.called
+            payload = webhook_route.calls[0].request.content
+            import json
+            data = json.loads(payload)
+            assert data["event"] == "alert_match"
+            assert data["rule_name"] == "Webhook test"
+            assert len(data["matches"]) == 1
+            assert data["matches"][0]["action_id"] == "a1"

@@ -1,11 +1,14 @@
 """Alert matching service — checks new actions against user-defined alert rules."""
 
+import asyncio
 import json
 import logging
 import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+import httpx
 
 from src.models.alerts import AlertMatch, AlertRule
 from src.models.enforcement import RegulatoryAction
@@ -119,10 +122,10 @@ class AlertService:
 
     # --- Matching engine ---
 
-    def check_actions(self, actions: list[RegulatoryAction]) -> list[AlertMatch]:
+    async def check_actions(self, actions: list[RegulatoryAction]) -> list[AlertMatch]:
         """Check a list of new actions against all active alert rules.
 
-        Returns newly created AlertMatch records.
+        Returns newly created AlertMatch records. Fires webhooks for rules that have them.
         """
         rules = [r for r in self._load_rules() if r.active]
         if not rules:
@@ -157,8 +160,66 @@ class AlertService:
             all_matches = existing_matches + new_matches
             self._save_matches(all_matches)
             logger.info("Created %d new alert matches", len(new_matches))
+            await self._fire_webhooks(new_matches, actions, rules)
 
         return new_matches
+
+    async def _fire_webhooks(
+        self,
+        matches: list[AlertMatch],
+        actions: list[RegulatoryAction],
+        rules: list[AlertRule],
+    ) -> None:
+        """Send webhook POST requests for rules that have webhook_url configured."""
+        action_map = {a.id: a for a in actions}
+        rule_map = {r.id: r for r in rules}
+
+        # Group matches by rule
+        rule_matches: dict[str, list[AlertMatch]] = {}
+        for m in matches:
+            rule_matches.setdefault(m.alert_rule_id, []).append(m)
+
+        tasks = []
+        for rule_id, rule_match_list in rule_matches.items():
+            rule = rule_map.get(rule_id)
+            if not rule or not rule.webhook_url:
+                continue
+
+            payload = {
+                "event": "alert_match",
+                "rule_name": rule.name,
+                "rule_id": rule.id,
+                "matches": [],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            for m in rule_match_list:
+                action = action_map.get(m.action_id)
+                match_data = {
+                    "action_id": m.action_id,
+                    "matched_keywords": m.matched_keywords,
+                }
+                if action:
+                    match_data.update({
+                        "title": action.title,
+                        "company": action.company,
+                        "source": action.source.value,
+                        "url": action.url,
+                    })
+                payload["matches"].append(match_data)
+
+            tasks.append(self._send_webhook(rule.webhook_url, payload))
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _send_webhook(self, url: str, payload: dict) -> None:
+        """POST payload to a webhook URL."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json=payload)
+                logger.info("Webhook to %s returned %d", url, resp.status_code)
+        except Exception as e:
+            logger.error("Webhook to %s failed: %s", url, e)
 
     def _rule_applies(self, rule: AlertRule, action: RegulatoryAction) -> bool:
         """Check if rule's scope filters match the action."""

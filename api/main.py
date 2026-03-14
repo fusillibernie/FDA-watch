@@ -1,11 +1,12 @@
 """FDA-watch API — FDA & Advertising Compliance Monitor."""
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -16,6 +17,9 @@ from src.models.enums import ProductCategory, Severity, SourceType, ViolationTyp
 from src.services.alert_service import AlertService
 from src.services.classifier import ViolationClassifier
 from src.services.ingestion_service import IngestionService
+from src.services.scheduler_service import SchedulerService
+from src.services.auth import require_auth
+from src.services.export_service import export_csv
 from src.services.search_service import SearchService
 
 # ---------------------------------------------------------------------------
@@ -55,6 +59,24 @@ ingestion_service = IngestionService(
     classifier=classifier,
     api_key=os.environ.get("OPENFDA_API_KEY"),
 )
+scheduler_service = SchedulerService(
+    ingest_callback=lambda: ingestion_service.ingest_all(),
+)
+
+
+# ---------------------------------------------------------------------------
+# Lifespan (scheduler start/stop)
+# ---------------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler_service.start()
+    yield
+    scheduler_service.stop()
+
+
+app.router.lifespan_context = lifespan
 
 # ---------------------------------------------------------------------------
 # Static files / UI
@@ -78,11 +100,11 @@ async def root():
 # ---------------------------------------------------------------------------
 
 
-@app.post("/api/ingest")
+@app.post("/api/ingest", dependencies=[Depends(require_auth)])
 @limiter.limit("5/minute")
 async def trigger_ingest(
     request: Request,
-    source: str | None = Query(None, description="Specific source: openfda, warning_letters, ftc, classaction"),
+    source: str | None = Query(None, description="Specific source: openfda, warning_letters, ftc, classaction, cpsc, prop65, nad, state_ag"),
 ):
     """Trigger data ingestion from FDA sources."""
     summary = await ingestion_service.ingest_all(source=source)
@@ -140,6 +162,38 @@ async def list_actions(
     }
 
 
+@app.get("/api/actions/export")
+async def export_actions(
+    q: str | None = Query(None),
+    category: ProductCategory | None = Query(None),
+    violation_type: ViolationType | None = Query(None),
+    severity: Severity | None = Query(None),
+    source: SourceType | None = Query(None),
+    company: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+):
+    """Export filtered actions as CSV."""
+    results, _ = search_service.search(
+        q=q, category=category, violation_type=violation_type,
+        severity=severity, source=source, company=company,
+        date_from=date_from, date_to=date_to,
+        offset=0, limit=10000,
+    )
+    csv_content = export_csv(results)
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=fda_watch_export.csv"},
+    )
+
+
+@app.get("/api/actions/trends")
+async def action_trends(months: int = Query(6, ge=1, le=24)):
+    """Trend analysis with month-over-month changes."""
+    return search_service.trends(months=months)
+
+
 @app.get("/api/actions/{action_id}")
 async def get_action(action_id: str):
     """Get a single regulatory action by ID."""
@@ -147,6 +201,38 @@ async def get_action(action_id: str):
     if not action:
         raise HTTPException(404, "Action not found")
     return action.model_dump()
+
+
+@app.get("/api/actions/{action_id}/related")
+async def get_related_actions(action_id: str):
+    """Find duplicate/related actions."""
+    related = search_service.get_related(action_id)
+    return [a.model_dump() for a in related]
+
+
+# ---------------------------------------------------------------------------
+# Companies
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/companies")
+async def list_companies(
+    q: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List companies with action counts."""
+    companies, total = search_service.list_companies(q=q, offset=offset, limit=limit)
+    return {"results": companies, "total": total, "offset": offset, "limit": limit}
+
+
+@app.get("/api/companies/{name}/profile")
+async def company_profile(name: str):
+    """Get full company profile."""
+    profile = search_service.company_profile(name)
+    if profile["total_actions"] == 0:
+        raise HTTPException(404, "Company not found")
+    return profile
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +285,7 @@ class AlertRuleCreate(BaseModel):
     keywords: list[str]
     product_categories: list[ProductCategory] | None = None
     sources: list[SourceType] | None = None
+    webhook_url: str | None = None
 
 
 class AlertRuleUpdate(BaseModel):
@@ -207,6 +294,7 @@ class AlertRuleUpdate(BaseModel):
     product_categories: list[ProductCategory] | None = None
     sources: list[SourceType] | None = None
     active: bool | None = None
+    webhook_url: str | None = None
 
 
 @app.get("/api/alerts/rules")
@@ -214,18 +302,19 @@ async def list_alert_rules():
     return [r.model_dump() for r in alert_service.list_rules()]
 
 
-@app.post("/api/alerts/rules", status_code=201)
+@app.post("/api/alerts/rules", status_code=201, dependencies=[Depends(require_auth)])
 async def create_alert_rule(body: AlertRuleCreate):
     rule = alert_service.create_rule(
         name=body.name,
         keywords=body.keywords,
         product_categories=body.product_categories,
         sources=body.sources,
+        webhook_url=body.webhook_url,
     )
     return rule.model_dump()
 
 
-@app.put("/api/alerts/rules/{rule_id}")
+@app.put("/api/alerts/rules/{rule_id}", dependencies=[Depends(require_auth)])
 async def update_alert_rule(rule_id: str, body: AlertRuleUpdate):
     updates = body.model_dump(exclude_none=True)
     rule = alert_service.update_rule(rule_id, updates)
@@ -234,7 +323,7 @@ async def update_alert_rule(rule_id: str, body: AlertRuleUpdate):
     return rule.model_dump()
 
 
-@app.delete("/api/alerts/rules/{rule_id}")
+@app.delete("/api/alerts/rules/{rule_id}", dependencies=[Depends(require_auth)])
 async def delete_alert_rule(rule_id: str):
     if not alert_service.delete_rule(rule_id):
         raise HTTPException(404, "Alert rule not found")
@@ -264,6 +353,30 @@ async def unread_match_count():
 
 
 # ---------------------------------------------------------------------------
+# Scheduler
+# ---------------------------------------------------------------------------
+
+
+class SchedulerConfig(BaseModel):
+    interval_hours: int | None = None
+    enabled: bool | None = None
+
+
+@app.get("/api/scheduler/status")
+async def scheduler_status():
+    return scheduler_service.get_status()
+
+
+@app.put("/api/scheduler/config", dependencies=[Depends(require_auth)])
+async def update_scheduler(body: SchedulerConfig):
+    if body.interval_hours is not None:
+        scheduler_service.set_interval(body.interval_hours)
+    if body.enabled is not None:
+        scheduler_service.set_enabled(body.enabled)
+    return scheduler_service.get_status()
+
+
+# ---------------------------------------------------------------------------
 # Reference
 # ---------------------------------------------------------------------------
 
@@ -285,6 +398,8 @@ async def list_product_categories():
 LITIGATION_SOURCES = {
     SourceType.FTC_ACTION,
     SourceType.CLASS_ACTION,
+    SourceType.NAD_DECISION,
+    SourceType.STATE_AG,
 }
 
 

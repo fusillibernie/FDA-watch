@@ -125,10 +125,12 @@ def test_litigation_sources_reference(client):
     resp = client.get("/api/reference/litigation-sources")
     assert resp.status_code == 200
     sources = resp.json()
-    assert len(sources) == 2
+    assert len(sources) == 4
     values = {s["value"] for s in sources}
     assert "ftc_action" in values
     assert "class_action" in values
+    assert "nad_decision" in values
+    assert "state_ag" in values
 
 
 def test_ingest_status(client):

@@ -13,6 +13,10 @@ from src.services.alert_service import AlertService
 from src.services.search_service import SearchService
 from src.integrations.ftc_client import fetch_ftc_cases
 from src.integrations.classaction_client import fetch_classaction_lawsuits
+from src.integrations.cpsc_client import fetch_cpsc_recalls
+from src.integrations.prop65_client import fetch_prop65_notices
+from src.integrations.nad_client import fetch_nad_decisions
+from src.integrations.state_ag_client import fetch_state_ag_actions
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +97,26 @@ class IngestionService:
             all_new_actions.extend(actions)
             summary["sources"]["classaction"] = len(actions)
 
+        if source is None or source == "cpsc":
+            actions = await self._ingest_cpsc()
+            all_new_actions.extend(actions)
+            summary["sources"]["cpsc"] = len(actions)
+
+        if source is None or source == "prop65":
+            actions = await self._ingest_prop65()
+            all_new_actions.extend(actions)
+            summary["sources"]["prop65"] = len(actions)
+
+        if source is None or source == "nad":
+            actions = await self._ingest_nad()
+            all_new_actions.extend(actions)
+            summary["sources"]["nad"] = len(actions)
+
+        if source is None or source == "state_ag":
+            actions = await self._ingest_state_ag()
+            all_new_actions.extend(actions)
+            summary["sources"]["state_ag"] = len(actions)
+
         # Classify all new actions
         self.classifier.classify_batch(all_new_actions)
 
@@ -102,7 +126,7 @@ class IngestionService:
 
         # Check alerts
         if all_new_actions:
-            matches = self.alerts.check_actions(all_new_actions)
+            matches = await self.alerts.check_actions(all_new_actions)
             summary["new_alert_matches"] = len(matches)
         else:
             summary["new_alert_matches"] = 0
@@ -180,6 +204,62 @@ class IngestionService:
             return []
 
         self._sync_state["classaction_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_cpsc(self) -> list[RegulatoryAction]:
+        """Fetch CPSC product recalls."""
+        date_from = self._sync_state.get("cpsc_last_fetch")
+        try:
+            actions = await fetch_cpsc_recalls(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch CPSC recalls: %s", e)
+            return []
+
+        self._sync_state["cpsc_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_prop65(self) -> list[RegulatoryAction]:
+        """Fetch Prop 65 60-day notices."""
+        date_from = self._sync_state.get("prop65_last_fetch")
+        try:
+            actions = await fetch_prop65_notices(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch Prop 65 notices: %s", e)
+            return []
+
+        self._sync_state["prop65_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_nad(self) -> list[RegulatoryAction]:
+        """Fetch NAD advertising decisions."""
+        date_from = self._sync_state.get("nad_last_fetch")
+        try:
+            actions = await fetch_nad_decisions(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch NAD decisions: %s", e)
+            return []
+
+        self._sync_state["nad_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_state_ag(self) -> list[RegulatoryAction]:
+        """Fetch state AG enforcement actions."""
+        date_from = self._sync_state.get("state_ag_last_fetch")
+        try:
+            actions = await fetch_state_ag_actions(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch state AG actions: %s", e)
+            return []
+
+        self._sync_state["state_ag_last_fetch"] = (
             datetime.now(timezone.utc).strftime("%Y-%m-%d")
         )
         return actions
