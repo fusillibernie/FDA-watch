@@ -8,18 +8,30 @@ from api.main import app, search_service, alert_service, source_preferences, reg
 
 @pytest.fixture(autouse=True)
 def _reset_services(tmp_path):
-    """Reset services to use temp directories for each test."""
-    search_service._actions = []
-    search_service._loaded = True
+    """Reset services to use temp DB/directories for each test."""
+    from src.services.database import init_db
+    db_path = tmp_path / "test.db"
+    conn = init_db(db_path)
+
+    search_service._conn = conn
+    search_service._migrated = True
     search_service.actions_file = tmp_path / "actions.json"
+    conn.execute("DELETE FROM actions")
+    conn.commit()
 
     alert_service.data_dir = tmp_path
     alert_service.rules_file = tmp_path / "rules.json"
     alert_service.matches_file = tmp_path / "matches.json"
 
-    regulation_search._changes = []
-    regulation_search._loaded = True
+    regulation_search._conn = conn
+    regulation_search._migrated = True
     regulation_search.changes_file = tmp_path / "reg_changes.json"
+    conn.execute("DELETE FROM regulation_changes")
+    conn.commit()
+
+    # Reset source preferences to defaults (temp file)
+    source_preferences._settings_file = tmp_path / "prefs.json"
+    source_preferences._prefs = source_preferences._load()
 
 
 @pytest.fixture

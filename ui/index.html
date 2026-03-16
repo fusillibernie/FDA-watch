@@ -826,11 +826,13 @@ function exportCSV(type) {
     if (cat) params.set('category', cat);
     if (vio) params.set('violation_type', vio);
     if (sev) params.set('severity', sev);
-  } else {
+  } else if (type === 'litigation') {
     const q = document.getElementById('litSearch').value.trim();
     const src = document.getElementById('litSource').value;
     if (q) params.set('q', q);
     if (src) params.set('source', src);
+    window.open(API + '/api/litigation/export?' + params.toString(), '_blank');
+    return;
   }
   window.open(API + '/api/actions/export?' + params.toString(), '_blank');
 }

@@ -65,10 +65,10 @@ class IngestionService:
 
     def get_status(self) -> dict:
         """Return sync status info."""
-        self.search._ensure_loaded()
+        stats = self.search.stats()
         return {
             "sync_state": self._sync_state,
-            "total_actions": len(self.search._actions),
+            "total_actions": stats.get("total_actions", 0),
         }
 
     async def ingest_all(self, source: str | None = None) -> dict:

@@ -1,14 +1,16 @@
-"""Search, filter, and aggregation service for regulatory actions."""
+"""Search, filter, and aggregation service for regulatory actions (SQLite-backed)."""
 
 import json
 import logging
 import re
+import sqlite3
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.models.enums import ProductCategory, Severity, SourceType, ViolationType
 from src.models.enforcement import RegulatoryAction
+from src.services.database import init_db, action_to_row, row_to_action_dict
 from src.services.dedup_service import find_duplicates, _normalize_company
 
 logger = logging.getLogger(__name__)
@@ -17,54 +19,114 @@ ACTIONS_FILE = Path(__file__).parent.parent.parent / "data" / "enforcement" / "a
 
 
 class SearchService:
-    """In-memory index of regulatory actions with filtering and aggregation."""
+    """SQLite-backed index of regulatory actions with filtering and aggregation."""
 
-    def __init__(self, actions_file: Path | None = None):
+    def __init__(self, db_path: Path | None = None, actions_file: Path | None = None):
         self.actions_file = actions_file or ACTIONS_FILE
-        self._actions: list[RegulatoryAction] = []
-        self._loaded = False
+        self._conn = init_db(db_path)
+        self._migrated = False
+        self._loaded = True  # backward compat for tests that set this
 
-    def _ensure_loaded(self) -> None:
-        if not self._loaded:
-            self.reload()
+    def _ensure_migrated(self) -> None:
+        """Auto-migrate from JSON file if DB is empty and JSON exists."""
+        if self._migrated:
+            return
+        self._migrated = True
+        count = self._conn.execute("SELECT COUNT(*) FROM actions").fetchone()[0]
+        if count == 0 and self.actions_file.exists():
+            self._migrate_from_json()
+
+    def _migrate_from_json(self) -> None:
+        """One-time migration from JSON file to SQLite."""
+        try:
+            with open(self.actions_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not data:
+                return
+            for item in data:
+                row = action_to_row(item)
+                self._upsert_action(row)
+            self._conn.commit()
+            logger.info("Migrated %d actions from JSON to SQLite", len(data))
+        except (json.JSONDecodeError, IOError) as e:
+            logger.error("Failed to migrate actions from JSON: %s", e)
+
+    def _upsert_action(self, row: dict) -> None:
+        """Insert or ignore a single action row."""
+        cols = ["id", "source", "source_id", "title", "description", "company",
+                "product_categories", "violation_types", "severity", "date",
+                "jurisdiction", "url", "status", "distribution", "raw_data"]
+        placeholders = ", ".join(f":{c}" for c in cols)
+        col_names = ", ".join(cols)
+        # Fill defaults for missing keys
+        row.setdefault("jurisdiction", "US")
+        row.setdefault("distribution", None)
+        row.setdefault("raw_data", None)
+        row.setdefault("url", None)
+        row.setdefault("status", None)
+        self._conn.execute(
+            f"INSERT OR IGNORE INTO actions ({col_names}) VALUES ({placeholders})",
+            {c: row.get(c) for c in cols},
+        )
 
     def reload(self) -> None:
-        """Load or reload actions from disk."""
-        self._actions = []
-        if self.actions_file.exists():
-            try:
-                with open(self.actions_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                self._actions = [RegulatoryAction(**a) for a in data]
-            except (json.JSONDecodeError, IOError) as e:
-                logger.error("Failed to load actions: %s", e)
-        self._loaded = True
-        logger.info("Loaded %d regulatory actions", len(self._actions))
+        """Re-migrate from JSON if needed (backward compat)."""
+        self._migrated = False
+        self._ensure_migrated()
 
     def save(self, actions: list[RegulatoryAction]) -> None:
-        """Save actions to disk and update in-memory index."""
-        self.actions_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.actions_file, "w", encoding="utf-8") as f:
-            json.dump([a.model_dump() for a in actions], f, indent=2)
-        self._actions = actions
-        self._loaded = True
+        """Replace all actions in DB (backward compat for tests)."""
+        self._conn.execute("DELETE FROM actions")
+        for a in actions:
+            row = action_to_row(a.model_dump())
+            self._upsert_action(row)
+        self._conn.commit()
 
     def add_actions(self, new_actions: list[RegulatoryAction]) -> int:
         """Merge new actions, deduplicating by source_id. Returns count of new records."""
-        self._ensure_loaded()
-        existing_ids = {a.source_id for a in self._actions}
-        added = [a for a in new_actions if a.source_id not in existing_ids]
+        self._ensure_migrated()
+        added = 0
+        for a in new_actions:
+            row = action_to_row(a.model_dump())
+            cursor = self._conn.execute(
+                "INSERT OR IGNORE INTO actions (id, source, source_id, title, description, "
+                "company, product_categories, violation_types, severity, date, jurisdiction, "
+                "url, status, distribution, raw_data) "
+                "VALUES (:id, :source, :source_id, :title, :description, :company, "
+                ":product_categories, :violation_types, :severity, :date, :jurisdiction, "
+                ":url, :status, :distribution, :raw_data)",
+                {
+                    "id": row.get("id"),
+                    "source": row.get("source"),
+                    "source_id": row.get("source_id"),
+                    "title": row.get("title"),
+                    "description": row.get("description", ""),
+                    "company": row.get("company", ""),
+                    "product_categories": row.get("product_categories", "[]"),
+                    "violation_types": row.get("violation_types", "[]"),
+                    "severity": row.get("severity"),
+                    "date": row.get("date", ""),
+                    "jurisdiction": row.get("jurisdiction", "US"),
+                    "url": row.get("url"),
+                    "status": row.get("status"),
+                    "distribution": row.get("distribution"),
+                    "raw_data": row.get("raw_data"),
+                },
+            )
+            if cursor.rowcount > 0:
+                added += 1
         if added:
-            self._actions.extend(added)
-            self.save(self._actions)
-        return len(added)
+            self._conn.commit()
+        return added
 
     def get_action(self, action_id: str) -> RegulatoryAction | None:
-        self._ensure_loaded()
-        for a in self._actions:
-            if a.id == action_id:
-                return a
-        return None
+        self._ensure_migrated()
+        row = self._conn.execute(
+            "SELECT * FROM actions WHERE id = ?", (action_id,)
+        ).fetchone()
+        if not row:
+            return None
+        return RegulatoryAction(**row_to_action_dict(row))
 
     def search(
         self,
@@ -80,76 +142,94 @@ class SearchService:
         limit: int = 50,
     ) -> tuple[list[RegulatoryAction], int]:
         """Filter and search actions. Returns (results, total_count)."""
-        self._ensure_loaded()
-        results = self._actions
+        self._ensure_migrated()
+
+        where_clauses: list[str] = []
+        params: dict = {}
 
         if q:
-            pattern = re.compile(re.escape(q), re.IGNORECASE)
-            results = [
-                a for a in results
-                if pattern.search(a.title) or pattern.search(a.description)
-            ]
+            where_clauses.append("(title LIKE :q OR description LIKE :q)")
+            params["q"] = f"%{q}%"
 
         if category:
-            results = [a for a in results if category in a.product_categories]
+            where_clauses.append("product_categories LIKE :category")
+            params["category"] = f'%"{category.value}"%'
 
         if violation_type:
-            results = [a for a in results if violation_type in a.violation_types]
+            where_clauses.append("violation_types LIKE :violation_type")
+            params["violation_type"] = f'%"{violation_type.value}"%'
 
         if severity:
-            results = [a for a in results if a.severity == severity]
+            where_clauses.append("severity = :severity")
+            params["severity"] = severity.value
 
         if source:
-            results = [a for a in results if a.source == source]
+            where_clauses.append("source = :source")
+            params["source"] = source.value
 
         if company:
-            pattern = re.compile(re.escape(company), re.IGNORECASE)
-            results = [a for a in results if pattern.search(a.company)]
+            where_clauses.append("company LIKE :company")
+            params["company"] = f"%{company}%"
 
         if date_from:
-            results = [a for a in results if a.date >= date_from]
+            where_clauses.append("date >= :date_from")
+            params["date_from"] = date_from
 
         if date_to:
-            results = [a for a in results if a.date <= date_to]
+            where_clauses.append("date <= :date_to")
+            params["date_to"] = date_to
 
-        # Sort by date descending
-        results.sort(key=lambda a: a.date, reverse=True)
+        where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-        total = len(results)
-        return results[offset : offset + limit], total
+        count_row = self._conn.execute(
+            f"SELECT COUNT(*) FROM actions WHERE {where_sql}", params
+        ).fetchone()
+        total = count_row[0]
+
+        rows = self._conn.execute(
+            f"SELECT * FROM actions WHERE {where_sql} ORDER BY date DESC LIMIT :limit OFFSET :offset",
+            {**params, "limit": limit, "offset": offset},
+        ).fetchall()
+
+        results = [RegulatoryAction(**row_to_action_dict(r)) for r in rows]
+        return results, total
 
     def stats(self) -> dict:
         """Aggregated statistics for the dashboard."""
-        self._ensure_loaded()
+        self._ensure_migrated()
 
-        now = datetime.now()
-        seven_days_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+        total = self._conn.execute("SELECT COUNT(*) FROM actions").fetchone()[0]
 
+        seven_days_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        recent = self._conn.execute(
+            "SELECT COUNT(*) FROM actions WHERE date >= ?", (seven_days_ago,)
+        ).fetchone()[0]
+
+        # Violation types — need to parse JSON arrays
         by_violation = Counter[str]()
         by_severity = Counter[str]()
         by_month = Counter[str]()
         by_company = Counter[str]()
-        recent_count = 0
 
-        for a in self._actions:
-            for vt in a.violation_types:
-                by_violation[vt.value] += 1
-            by_severity[a.severity.value] += 1
-            if len(a.date) >= 7:
-                by_month[a.date[:7]] += 1
-            by_company[a.company] += 1
-            if a.date >= seven_days_ago:
-                recent_count += 1
+        for row in self._conn.execute("SELECT violation_types, severity, date, company FROM actions"):
+            try:
+                vtypes = json.loads(row[0]) if row[0] else []
+            except (json.JSONDecodeError, TypeError):
+                vtypes = []
+            for vt in vtypes:
+                by_violation[vt] += 1
+            by_severity[row[1]] += 1
+            date_val = row[2] or ""
+            if len(date_val) >= 7:
+                by_month[date_val[:7]] += 1
+            by_company[row[3]] += 1
 
-        # Top 20 companies
         top_companies = dict(by_company.most_common(20))
-
-        # Sort months chronologically
         sorted_months = dict(sorted(by_month.items()))
 
         return {
-            "total_actions": len(self._actions),
-            "recent_7_days": recent_count,
+            "total_actions": total,
+            "recent_7_days": recent,
             "by_violation_type": dict(by_violation),
             "by_severity": dict(by_severity),
             "by_month": sorted_months,
@@ -159,21 +239,20 @@ class SearchService:
     # --- Company profiles ---
 
     def company_profile(self, name: str) -> dict:
-        """Build a profile for a company with fuzzy matching."""
-        self._ensure_loaded()
-        normalized = _normalize_company(name)
-
-        matching = [
-            a for a in self._actions
-            if _normalize_company(a.company) == normalized
-        ]
-        if not matching:
-            # Fallback to substring match
-            pattern = re.compile(re.escape(name), re.IGNORECASE)
-            matching = [a for a in self._actions if pattern.search(a.company)]
-
-        if not matching:
+        """Build a profile for a company."""
+        self._ensure_migrated()
+        # Exact match first, then LIKE
+        rows = self._conn.execute(
+            "SELECT * FROM actions WHERE company = ?", (name,)
+        ).fetchall()
+        if not rows:
+            rows = self._conn.execute(
+                "SELECT * FROM actions WHERE company LIKE ?", (f"%{name}%",)
+            ).fetchall()
+        if not rows:
             return {"company": name, "total_actions": 0}
+
+        matching = [RegulatoryAction(**row_to_action_dict(r)) for r in rows]
 
         by_violation = Counter[str]()
         by_severity = Counter[str]()
@@ -206,44 +285,49 @@ class SearchService:
         self, q: str | None = None, offset: int = 0, limit: int = 50
     ) -> tuple[list[dict], int]:
         """List companies with action counts."""
-        self._ensure_loaded()
-        company_counts = Counter[str]()
-        for a in self._actions:
-            company_counts[a.company] += 1
-
-        items = company_counts.most_common()
+        self._ensure_migrated()
         if q:
-            pattern = re.compile(re.escape(q), re.IGNORECASE)
-            items = [(name, count) for name, count in items if pattern.search(name)]
+            rows = self._conn.execute(
+                "SELECT company, COUNT(*) as cnt FROM actions WHERE company LIKE ? "
+                "GROUP BY company ORDER BY cnt DESC",
+                (f"%{q}%",),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT company, COUNT(*) as cnt FROM actions "
+                "GROUP BY company ORDER BY cnt DESC"
+            ).fetchall()
 
-        total = len(items)
-        page = items[offset: offset + limit]
-        return [{"company": name, "action_count": count} for name, count in page], total
+        total = len(rows)
+        page = rows[offset: offset + limit]
+        return [{"company": r[0], "action_count": r[1]} for r in page], total
 
     # --- Trends ---
 
     def trends(self, months: int = 6) -> dict:
         """Violation count trends with month-over-month changes."""
-        self._ensure_loaded()
-        now = datetime.now()
+        self._ensure_migrated()
 
         by_month = Counter[str]()
         by_viol_month: dict[str, Counter[str]] = {}
 
-        for a in self._actions:
-            if len(a.date) >= 7:
-                month_key = a.date[:7]
+        for row in self._conn.execute("SELECT date, violation_types FROM actions"):
+            date_val = row[0] or ""
+            if len(date_val) >= 7:
+                month_key = date_val[:7]
                 by_month[month_key] += 1
-                for vt in a.violation_types:
-                    by_viol_month.setdefault(month_key, Counter())[vt.value] += 1
+                try:
+                    vtypes = json.loads(row[1]) if row[1] else []
+                except (json.JSONDecodeError, TypeError):
+                    vtypes = []
+                for vt in vtypes:
+                    by_viol_month.setdefault(month_key, Counter())[vt] += 1
 
-        # Get last N months
         month_keys = sorted(by_month.keys())
         recent = month_keys[-months:] if len(month_keys) >= months else month_keys
 
         monthly_counts = [{"month": m, "count": by_month[m]} for m in recent]
 
-        # Month-over-month changes
         mom_changes = []
         for i in range(1, len(monthly_counts)):
             prev = monthly_counts[i - 1]["count"]
@@ -255,7 +339,6 @@ class SearchService:
                 "change_pct": round(change, 1),
             })
 
-        # Emerging patterns: violation types with >50% increase in last 2 vs prior 4 months
         emerging = []
         if len(recent) >= 3:
             split = max(1, len(recent) - 2)
@@ -295,16 +378,14 @@ class SearchService:
 
     def get_related(self, action_id: str) -> list[RegulatoryAction]:
         """Find actions related/duplicate to the given action."""
-        self._ensure_loaded()
+        self._ensure_migrated()
         action = self.get_action(action_id)
         if not action:
             return []
 
-        groups = find_duplicates(self._actions)
-        for group in groups:
-            if action_id in group:
-                return [
-                    a for a in self._actions
-                    if a.id in group and a.id != action_id
-                ]
-        return []
+        # Find by same company + similar date range
+        rows = self._conn.execute(
+            "SELECT * FROM actions WHERE company = ? AND id != ? ORDER BY date DESC LIMIT 10",
+            (action.company, action_id),
+        ).fetchall()
+        return [RegulatoryAction(**row_to_action_dict(r)) for r in rows]

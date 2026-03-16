@@ -21,8 +21,12 @@ def _make_change(**overrides) -> RegulationChange:
     return RegulationChange(**defaults)
 
 
+def _make_svc(tmp_path):
+    return RegulationSearchService(db_path=tmp_path / "test.db", changes_file=tmp_path / "no_such.json")
+
+
 def test_add_and_search(tmp_path):
-    svc = RegulationSearchService(changes_file=tmp_path / "changes.json")
+    svc = _make_svc(tmp_path)
     c1 = _make_change()
     c2 = _make_change(id="fr-test-002", source_id="fr-test-002", title="Cosmetic Safety Rule", stage=RegulationStage.PROPOSED_RULE, product_categories=[ProductCategory.COSMETIC])
 
@@ -34,7 +38,7 @@ def test_add_and_search(tmp_path):
 
 
 def test_dedup(tmp_path):
-    svc = RegulationSearchService(changes_file=tmp_path / "changes.json")
+    svc = _make_svc(tmp_path)
     c1 = _make_change()
     svc.add_changes([c1])
     added = svc.add_changes([c1])  # duplicate
@@ -45,7 +49,7 @@ def test_dedup(tmp_path):
 
 
 def test_search_by_stage(tmp_path):
-    svc = RegulationSearchService(changes_file=tmp_path / "changes.json")
+    svc = _make_svc(tmp_path)
     svc.add_changes([
         _make_change(id="1", source_id="1", stage=RegulationStage.FINAL_RULE),
         _make_change(id="2", source_id="2", stage=RegulationStage.PROPOSED_RULE),
@@ -57,7 +61,7 @@ def test_search_by_stage(tmp_path):
 
 
 def test_search_by_agency(tmp_path):
-    svc = RegulationSearchService(changes_file=tmp_path / "changes.json")
+    svc = _make_svc(tmp_path)
     svc.add_changes([
         _make_change(id="1", source_id="1", agency="FDA"),
         _make_change(id="2", source_id="2", agency="FTC"),
@@ -69,7 +73,7 @@ def test_search_by_agency(tmp_path):
 
 
 def test_search_by_category(tmp_path):
-    svc = RegulationSearchService(changes_file=tmp_path / "changes.json")
+    svc = _make_svc(tmp_path)
     svc.add_changes([
         _make_change(id="1", source_id="1", product_categories=[ProductCategory.FOOD]),
         _make_change(id="2", source_id="2", product_categories=[ProductCategory.COSMETIC]),
@@ -80,7 +84,7 @@ def test_search_by_category(tmp_path):
 
 
 def test_search_text(tmp_path):
-    svc = RegulationSearchService(changes_file=tmp_path / "changes.json")
+    svc = _make_svc(tmp_path)
     svc.add_changes([
         _make_change(id="1", source_id="1", title="OTC Monograph Reform"),
         _make_change(id="2", source_id="2", title="Food Contact Material Safety"),
@@ -92,7 +96,7 @@ def test_search_text(tmp_path):
 
 
 def test_get_change(tmp_path):
-    svc = RegulationSearchService(changes_file=tmp_path / "changes.json")
+    svc = _make_svc(tmp_path)
     c = _make_change()
     svc.add_changes([c])
 
@@ -104,7 +108,7 @@ def test_get_change(tmp_path):
 
 
 def test_stats(tmp_path):
-    svc = RegulationSearchService(changes_file=tmp_path / "changes.json")
+    svc = _make_svc(tmp_path)
     svc.add_changes([
         _make_change(id="1", source_id="1", agency="FDA", stage=RegulationStage.FINAL_RULE, date_published="2025-06-15"),
         _make_change(id="2", source_id="2", agency="FTC", stage=RegulationStage.PROPOSED_RULE, date_published="2025-06-10", date_comments_close="2099-12-31"),
@@ -118,10 +122,11 @@ def test_stats(tmp_path):
 
 
 def test_persistence(tmp_path):
-    file = tmp_path / "changes.json"
-    svc = RegulationSearchService(changes_file=file)
+    db = tmp_path / "persist.db"
+    no_json = tmp_path / "no_such.json"
+    svc = RegulationSearchService(db_path=db, changes_file=no_json)
     svc.add_changes([_make_change()])
 
-    svc2 = RegulationSearchService(changes_file=file)
+    svc2 = RegulationSearchService(db_path=db, changes_file=no_json)
     results, total = svc2.search()
     assert total == 1

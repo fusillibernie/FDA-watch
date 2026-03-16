@@ -15,7 +15,7 @@ def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     """Get a SQLite connection with row factory."""
     path = db_path or DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -38,6 +38,7 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             violation_types TEXT NOT NULL DEFAULT '[]',
             severity TEXT NOT NULL,
             date TEXT NOT NULL DEFAULT '',
+            jurisdiction TEXT NOT NULL DEFAULT 'US',
             url TEXT,
             status TEXT,
             distribution TEXT,
@@ -48,6 +49,32 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
         CREATE INDEX IF NOT EXISTS idx_actions_date ON actions(date);
         CREATE INDEX IF NOT EXISTS idx_actions_company ON actions(company);
         CREATE INDEX IF NOT EXISTS idx_actions_source_id ON actions(source_id);
+        CREATE INDEX IF NOT EXISTS idx_actions_severity ON actions(severity);
+        CREATE INDEX IF NOT EXISTS idx_actions_jurisdiction ON actions(jurisdiction);
+
+        CREATE TABLE IF NOT EXISTS regulation_changes (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            source_id TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            agency TEXT NOT NULL DEFAULT '',
+            stage TEXT NOT NULL,
+            product_categories TEXT NOT NULL DEFAULT '[]',
+            date_published TEXT NOT NULL DEFAULT '',
+            date_effective TEXT,
+            date_comments_close TEXT,
+            jurisdiction TEXT NOT NULL DEFAULT 'US',
+            url TEXT,
+            cfr_references TEXT,
+            raw_data TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_reg_source ON regulation_changes(source);
+        CREATE INDEX IF NOT EXISTS idx_reg_date ON regulation_changes(date_published);
+        CREATE INDEX IF NOT EXISTS idx_reg_agency ON regulation_changes(agency);
+        CREATE INDEX IF NOT EXISTS idx_reg_stage ON regulation_changes(stage);
+        CREATE INDEX IF NOT EXISTS idx_reg_source_id ON regulation_changes(source_id);
 
         CREATE TABLE IF NOT EXISTS alert_rules (
             id TEXT PRIMARY KEY,
@@ -63,11 +90,13 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS alert_matches (
             id TEXT PRIMARY KEY,
             alert_rule_id TEXT NOT NULL,
-            action_id TEXT NOT NULL,
+            action_id TEXT,
+            regulation_change_id TEXT,
             matched_keywords TEXT NOT NULL DEFAULT '[]',
             matched_at TEXT NOT NULL,
             read INTEGER NOT NULL DEFAULT 0,
-            UNIQUE(alert_rule_id, action_id)
+            UNIQUE(alert_rule_id, action_id),
+            UNIQUE(alert_rule_id, regulation_change_id)
         );
 
         CREATE TABLE IF NOT EXISTS sync_state (
@@ -105,6 +134,34 @@ def row_to_action_dict(row: sqlite3.Row) -> dict:
     """Convert a DB row back to an action dict (JSON-decode lists)."""
     d = dict(row)
     for field in ("product_categories", "violation_types"):
+        if isinstance(d.get(field), str):
+            try:
+                d[field] = json.loads(d[field])
+            except (json.JSONDecodeError, TypeError):
+                d[field] = []
+    if isinstance(d.get("raw_data"), str) and d["raw_data"]:
+        try:
+            d["raw_data"] = json.loads(d["raw_data"])
+        except (json.JSONDecodeError, TypeError):
+            d["raw_data"] = None
+    return d
+
+
+def change_to_row(change_dict: dict) -> dict:
+    """Convert a regulation change dict to a row dict."""
+    row = dict(change_dict)
+    for field in ("product_categories", "cfr_references"):
+        if isinstance(row.get(field), list):
+            row[field] = json.dumps(row[field])
+    if isinstance(row.get("raw_data"), dict):
+        row["raw_data"] = json.dumps(row["raw_data"])
+    return row
+
+
+def row_to_change_dict(row: sqlite3.Row) -> dict:
+    """Convert a DB row back to a regulation change dict."""
+    d = dict(row)
+    for field in ("product_categories", "cfr_references"):
         if isinstance(d.get(field), str):
             try:
                 d[field] = json.loads(d[field])

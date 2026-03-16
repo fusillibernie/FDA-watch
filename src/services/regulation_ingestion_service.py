@@ -9,6 +9,7 @@ from src.integrations.federal_register_client import fetch_federal_register
 from src.integrations.fda_guidance_client import fetch_fda_guidance
 from src.integrations.eurlex_client import fetch_eurlex_changes
 from src.integrations.ifra_client import fetch_ifra_amendments
+from src.services.alert_service import AlertService
 from src.services.regulation_search_service import RegulationSearchService
 from src.services.source_preferences import SourcePreferencesService
 
@@ -22,9 +23,11 @@ class RegulationIngestionService:
         self,
         regulation_search: RegulationSearchService | None = None,
         preferences: SourcePreferencesService | None = None,
+        alerts: AlertService | None = None,
     ):
         self.search = regulation_search or RegulationSearchService()
         self.preferences = preferences or SourcePreferencesService()
+        self.alerts = alerts or AlertService()
         self._sync_state: dict = {}
 
     async def ingest_all(self, source: str | None = None) -> dict:
@@ -63,6 +66,10 @@ class RegulationIngestionService:
 
         new_count = self.search.add_changes(all_changes)
         summary["new_changes"] = new_count
+
+        if all_changes:
+            matches = await self.alerts.check_regulation_changes(all_changes)
+            summary["new_alert_matches"] = len(matches)
 
         logger.info("Regulation ingestion complete: %s", summary)
         return summary

@@ -70,6 +70,7 @@ regulation_search = RegulationSearchService()
 regulation_ingestion = RegulationIngestionService(
     regulation_search=regulation_search,
     preferences=source_preferences,
+    alerts=alert_service,
 )
 
 
@@ -631,6 +632,31 @@ async def get_litigation_case(case_id: str):
     if not action or action.source not in LITIGATION_SOURCES:
         raise HTTPException(404, "Litigation case not found")
     return action.model_dump()
+
+
+@app.get("/api/litigation/export")
+async def export_litigation(
+    q: str | None = Query(None),
+    source: SourceType | None = Query(None),
+    category: ProductCategory | None = Query(None),
+    violation_type: ViolationType | None = Query(None),
+):
+    """Export litigation cases as CSV."""
+    all_results = []
+    sources = [source] if source and source in LITIGATION_SOURCES else LITIGATION_SOURCES
+    for src in sources:
+        src_results, _ = search_service.search(
+            q=q, source=src, category=category, violation_type=violation_type,
+            offset=0, limit=10000,
+        )
+        all_results.extend(src_results)
+    all_results.sort(key=lambda a: a.get("date", ""), reverse=True)
+    csv_content = export_csv(all_results)
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=fda_watch_litigation.csv"},
+    )
 
 
 @app.get("/api/reference/litigation-sources")

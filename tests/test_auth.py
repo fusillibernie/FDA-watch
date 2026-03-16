@@ -10,9 +10,13 @@ from api.main import app, search_service, alert_service
 
 @pytest.fixture(autouse=True)
 def _reset_services(tmp_path):
-    search_service._actions = []
-    search_service._loaded = True
+    from src.services.database import init_db
+    conn = init_db(tmp_path / "test.db")
+    search_service._conn = conn
+    search_service._migrated = True
     search_service.actions_file = tmp_path / "actions.json"
+    conn.execute("DELETE FROM actions")
+    conn.commit()
     alert_service.data_dir = tmp_path
     alert_service.rules_file = tmp_path / "rules.json"
     alert_service.matches_file = tmp_path / "matches.json"
