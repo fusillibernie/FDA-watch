@@ -50,5 +50,21 @@
   "unsubstantiated_claim": {
     "keywords": ["unsubstantiated", "no scientific evidence", "insufficient evidence", "not supported by evidence", "lacks substantiation"],
     "patterns": ["unsubstantiat", "claim.*not.*support", "no adequate.*evidence"]
+  },
+  "product_safety_risk": {
+    "keywords": ["serious risk", "risk to health", "risk to safety", "dangerous product", "injury risk", "choking hazard", "chemical risk", "burn risk", "electric shock"],
+    "patterns": ["serious risk", "risk.*health", "risk.*safety", "RAPEX", "Safety Gate"]
+  },
+  "food_safety_alert": {
+    "keywords": ["food alert", "food notification", "border rejection", "unauthorized novel food", "pesticide residue", "mycotoxin", "heavy metals in food", "food fraud"],
+    "patterns": ["RASFF", "food.*alert", "border.*reject", "novel food", "pesticide.*residue"]
+  },
+  "restricted_substance": {
+    "keywords": ["restricted substance", "SVHC", "candidate list", "authorisation required", "substance of very high concern", "REACH restriction", "CMR substance"],
+    "patterns": ["REACH", "SVHC", "annex XIV", "annex XVII", "restricted.*substance", "candidate list"]
+  },
+  "cosmetic_safety_concern": {
+    "keywords": ["cosmetic safety", "endocrine disruptor", "sensitizer", "banned ingredient", "CMR in cosmetic", "nanomaterial concern", "preservative limit"],
+    "patterns": ["SCCS.*opinion", "cosmetic.*safety", "endocrine.*disrupt", "annex II", "annex III"]
   }
 }

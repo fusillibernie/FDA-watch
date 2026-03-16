@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from api.main import app, search_service, alert_service
+from api.main import app, search_service, alert_service, source_preferences, regulation_search
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +16,10 @@ def _reset_services(tmp_path):
     alert_service.data_dir = tmp_path
     alert_service.rules_file = tmp_path / "rules.json"
     alert_service.matches_file = tmp_path / "matches.json"
+
+    regulation_search._changes = []
+    regulation_search._loaded = True
+    regulation_search.changes_file = tmp_path / "reg_changes.json"
 
 
 @pytest.fixture
@@ -137,3 +141,104 @@ def test_ingest_status(client):
     resp = client.get("/api/ingest/status")
     assert resp.status_code == 200
     assert "sync_state" in resp.json()
+
+
+def test_source_preferences_get(client):
+    resp = client.get("/api/settings/sources")
+    assert resp.status_code == 200
+    sources = resp.json()
+    assert len(sources) > 0
+    keys = {s["source_key"] for s in sources}
+    assert "openfda_enforcement" in keys
+    assert "eu_rapex" in keys
+    # US sources enabled by default
+    us = next(s for s in sources if s["source_key"] == "openfda_enforcement")
+    assert us["enabled"] is True
+    assert us["jurisdiction"] == "US"
+    # EU sources disabled by default
+    eu = next(s for s in sources if s["source_key"] == "eu_rapex")
+    assert eu["enabled"] is False
+    assert eu["jurisdiction"] == "EU"
+
+
+def test_source_preferences_update(client):
+    resp = client.put("/api/settings/sources", json={
+        "source_key": "eu_rapex",
+        "enabled": True,
+    })
+    assert resp.status_code == 200
+    assert resp.json()["enabled"] is True
+
+    # Verify it persisted
+    resp = client.get("/api/settings/sources")
+    eu = next(s for s in resp.json() if s["source_key"] == "eu_rapex")
+    assert eu["enabled"] is True
+
+    # Reset
+    client.put("/api/settings/sources", json={"source_key": "eu_rapex", "enabled": False})
+
+
+def test_source_preferences_invalid_key(client):
+    resp = client.put("/api/settings/sources", json={
+        "source_key": "nonexistent",
+        "enabled": True,
+    })
+    assert resp.status_code == 400
+
+
+def test_source_types_reference(client):
+    resp = client.get("/api/reference/source-types")
+    assert resp.status_code == 200
+    types = resp.json()
+    assert len(types) == 16  # 10 US + 6 EU
+    values = {t["value"] for t in types}
+    assert "eu_rapex" in values
+    assert "eu_rasff" in values
+    assert "eu_sccs" in values
+    assert "eu_echa_reach" in values
+    # Check jurisdiction field
+    eu_rapex = next(t for t in types if t["value"] == "eu_rapex")
+    assert eu_rapex["jurisdiction"] == "EU"
+    openfda = next(t for t in types if t["value"] == "openfda_enforcement")
+    assert openfda["jurisdiction"] == "US"
+
+
+def test_regulations_empty(client):
+    resp = client.get("/api/regulations")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["results"] == []
+    assert data["total"] == 0
+
+
+def test_regulation_not_found(client):
+    resp = client.get("/api/regulations/nonexistent")
+    assert resp.status_code == 404
+
+
+def test_regulation_stats_empty(client):
+    resp = client.get("/api/regulations/stats")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_changes"] == 0
+
+
+def test_regulation_stages_reference(client):
+    resp = client.get("/api/reference/regulation-stages")
+    assert resp.status_code == 200
+    stages = resp.json()
+    assert len(stages) == 8
+    values = {s["value"] for s in stages}
+    assert "proposed_rule" in values
+    assert "final_rule" in values
+    assert "amendment" in values
+    assert "guidance_draft" in values
+
+
+def test_source_types_include_regulation_sources(client):
+    resp = client.get("/api/reference/source-types")
+    values = {t["value"] for t in resp.json()}
+    assert "federal_register" in values
+    assert "fda_guidance" in values
+    assert "eu_official_journal" in values
+    assert "ifra_amendment" in values

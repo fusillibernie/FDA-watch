@@ -16,6 +16,7 @@ class RegulatoryAction(BaseModel):
     violation_types: list[ViolationType]
     severity: Severity
     date: str
+    jurisdiction: str = "US"
     url: str | None = None
     status: str | None = None
     distribution: str | None = None

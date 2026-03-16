@@ -17,11 +17,12 @@ class AlertRule(BaseModel):
 
 
 class AlertMatch(BaseModel):
-    """A match between an alert rule and a regulatory action."""
+    """A match between an alert rule and a regulatory action or regulation change."""
 
     id: str
     alert_rule_id: str
-    action_id: str
+    action_id: str | None = None
+    regulation_change_id: str | None = None
     matched_keywords: list[str]
     matched_at: str
     read: bool = False

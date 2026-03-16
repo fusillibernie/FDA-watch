@@ -48,6 +48,8 @@ data/enforcement/*.json
 data/warning_letters/*.json
 data/litigation/*.json
 data/alerts/*.json
+data/regulations/*.json
+data/settings/*.json
 data/sync_state.json
 !data/**/.gitkeep
 

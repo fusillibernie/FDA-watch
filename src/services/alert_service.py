@@ -12,6 +12,7 @@ import httpx
 
 from src.models.alerts import AlertMatch, AlertRule
 from src.models.enforcement import RegulatoryAction
+from src.models.regulation import RegulationChange
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +221,69 @@ class AlertService:
                 logger.info("Webhook to %s returned %d", url, resp.status_code)
         except Exception as e:
             logger.error("Webhook to %s failed: %s", url, e)
+
+    async def check_regulation_changes(self, changes: list[RegulationChange]) -> list[AlertMatch]:
+        """Check regulation changes against active alert rules."""
+        rules = [r for r in self._load_rules() if r.active]
+        if not rules:
+            return []
+
+        existing_matches = self._load_matches()
+        existing_pairs = {(m.alert_rule_id, m.regulation_change_id) for m in existing_matches if m.regulation_change_id}
+        new_matches: list[AlertMatch] = []
+
+        for change in changes:
+            for rule in rules:
+                if (rule.id, change.id) in existing_pairs:
+                    continue
+
+                if not self._rule_applies_to_change(rule, change):
+                    continue
+
+                matched_keywords = self._find_keyword_matches_in_text(
+                    rule.keywords, f"{change.title} {change.summary}"
+                )
+                if matched_keywords:
+                    match = AlertMatch(
+                        id=uuid.uuid4().hex[:12],
+                        alert_rule_id=rule.id,
+                        regulation_change_id=change.id,
+                        matched_keywords=matched_keywords,
+                        matched_at=datetime.now(timezone.utc).isoformat(),
+                        read=False,
+                    )
+                    new_matches.append(match)
+                    existing_pairs.add((rule.id, change.id))
+
+        if new_matches:
+            all_matches = existing_matches + new_matches
+            self._save_matches(all_matches)
+            logger.info("Created %d new regulation alert matches", len(new_matches))
+
+        return new_matches
+
+    def _rule_applies_to_change(self, rule: AlertRule, change: RegulationChange) -> bool:
+        """Check if rule's scope filters match a regulation change."""
+        if rule.product_categories:
+            if not set(change.product_categories) & set(rule.product_categories):
+                return False
+        if rule.sources:
+            if change.source not in rule.sources:
+                return False
+        return True
+
+    def _find_keyword_matches_in_text(self, keywords: list[str], text: str) -> list[str]:
+        """Find which keywords match in arbitrary text."""
+        lower = text.lower()
+        matched = []
+        for kw in keywords:
+            try:
+                if re.search(kw, lower, re.IGNORECASE):
+                    matched.append(kw)
+            except re.error:
+                if kw.lower() in lower:
+                    matched.append(kw)
+        return matched
 
     def _rule_applies(self, rule: AlertRule, action: RegulatoryAction) -> bool:
         """Check if rule's scope filters match the action."""

@@ -74,6 +74,21 @@ tr:hover td { background: var(--red-50); }
 .severity-class_iii { background: var(--green-100); color: #166534; }
 .severity-warning { background: var(--amber-100); color: #92400e; }
 .severity-advisory { background: var(--gray-100); color: var(--gray-700); }
+.source-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
+.source-us { background: #dbeafe; color: #1e40af; }
+.source-eu { background: #ede9fe; color: #5b21b6; }
+.toggle-group { margin-bottom: 1rem; }
+.toggle-group h4 { font-size: 0.9rem; margin-bottom: 0.5rem; color: var(--gray-700); }
+.toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 0.4rem 0; border-bottom: 1px solid var(--gray-100); }
+.toggle-row label { font-size: 0.85rem; }
+.toggle-row input[type="checkbox"] { margin-right: 0.5rem; }
+.stage-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; }
+.stage-proposed_rule, .stage-advance_notice { background: var(--amber-100); color: #92400e; }
+.stage-final_rule, .stage-interim_final_rule { background: var(--green-100); color: #166534; }
+.stage-amendment { background: #dbeafe; color: #1e40af; }
+.stage-guidance_draft { background: #fef3c7; color: #92400e; }
+.stage-guidance_final { background: #dcfce7; color: #166534; }
+.stage-notice { background: var(--gray-100); color: var(--gray-700); }
 .pagination { display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; font-size: 0.9rem; color: var(--gray-500); }
 .pagination button { padding: 0.4rem 1rem; border: 1px solid var(--gray-300); border-radius: 6px; background: white; cursor: pointer; }
 .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -152,6 +167,7 @@ tr:hover td { background: var(--red-50); }
   <div class="tab active" data-tab="dashboard">Dashboard</div>
   <div class="tab" data-tab="enforcement">Enforcement</div>
   <div class="tab" data-tab="litigation">Litigation</div>
+  <div class="tab" data-tab="regulations">Regulations</div>
   <div class="tab" data-tab="alerts">Alerts <span class="badge" id="alertBadge" style="display:none">0</span></div>
   <div class="tab" data-tab="settings">Settings</div>
 </div>
@@ -163,6 +179,7 @@ tr:hover td { background: var(--red-50); }
     <div class="stats-grid">
       <div class="stat-card"><div class="label">Total Actions</div><div class="value" id="statTotal">-</div></div>
       <div class="stat-card"><div class="label">Last 7 Days</div><div class="value red" id="statRecent">-</div></div>
+      <div class="stat-card"><div class="label">Reg Changes</div><div class="value" id="statRegulations" style="color:var(--blue-600)">-</div></div>
       <div class="stat-card"><div class="label">Unread Alerts</div><div class="value amber" id="statAlerts">-</div></div>
       <div class="stat-card"><div class="label">Last Sync</div><div class="value" id="statSync" style="font-size:1rem">-</div></div>
     </div>
@@ -186,6 +203,7 @@ tr:hover td { background: var(--red-50); }
       <select id="enfCategory"><option value="">All Categories</option></select>
       <select id="enfViolation"><option value="">All Violations</option></select>
       <select id="enfSeverity"><option value="">All Severities</option></select>
+      <select id="enfSource"><option value="">All Sources</option></select>
       <button class="btn btn-outline" onclick="loadActions()">Filter</button>
       <button class="btn btn-outline" onclick="exportCSV('enforcement')">Export CSV</button>
     </div>
@@ -231,6 +249,36 @@ tr:hover td { background: var(--red-50); }
     </div>
   </div>
 
+  <!-- Regulations -->
+  <div class="panel" id="panel-regulations">
+    <div class="toolbar">
+      <input type="text" id="regSearch" placeholder="Search regulations...">
+      <select id="regStage"><option value="">All Stages</option></select>
+      <select id="regAgency">
+        <option value="">All Agencies</option>
+        <option value="FDA">FDA</option>
+        <option value="FTC">FTC</option>
+        <option value="CPSC">CPSC</option>
+        <option value="EU Commission">EU Commission</option>
+        <option value="IFRA">IFRA</option>
+      </select>
+      <select id="regCategory"><option value="">All Categories</option></select>
+      <button class="btn btn-outline" onclick="loadRegulations()">Filter</button>
+      <button class="btn btn-outline" onclick="exportRegCSV()">Export CSV</button>
+    </div>
+    <table id="regulationsTable">
+      <thead><tr><th>Date</th><th>Title</th><th>Agency</th><th>Stage</th><th>Categories</th><th>Effective</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="pagination">
+      <span id="regPagInfo">-</span>
+      <div>
+        <button id="regPrev" onclick="changeRegPage(-1)" disabled>&laquo; Prev</button>
+        <button id="regNext" onclick="changeRegPage(1)" disabled>Next &raquo;</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Alerts -->
   <div class="panel" id="panel-alerts">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
@@ -244,6 +292,12 @@ tr:hover td { background: var(--red-50); }
 
   <!-- Settings -->
   <div class="panel" id="panel-settings">
+    <div class="settings-section">
+      <h3>Data Sources</h3>
+      <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:0.75rem">Enable or disable data sources. EU sources are disabled by default.</p>
+      <div id="sourceToggles"></div>
+      <button class="btn btn-outline" onclick="saveSourcePreferences()" style="margin-top:0.5rem">Save Sources</button>
+    </div>
     <div class="settings-section">
       <h3>Scheduled Ingestion</h3>
       <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:0.5rem">Automatically fetch new data at a set interval.</p>
@@ -341,15 +395,18 @@ document.querySelectorAll('.tab').forEach(t => {
 // --- Dashboard ---
 async function loadDashboard() {
   try {
-    const [stats, status, unread] = await Promise.all([
+    const [stats, status, unread, regStats] = await Promise.all([
       fetch(API + '/api/actions/stats').then(r => r.json()),
       fetch(API + '/api/ingest/status').then(r => r.json()),
       fetch(API + '/api/alerts/matches/unread-count').then(r => r.json()),
+      fetch(API + '/api/regulations/stats').then(r => r.json()).catch(() => ({ total_changes: 0 })),
     ]);
 
     document.getElementById('statTotal').textContent = stats.total_actions;
     document.getElementById('statRecent').textContent = stats.recent_7_days;
     document.getElementById('statAlerts').textContent = unread.unread;
+    document.getElementById('statRegulations').textContent = regStats.total_changes +
+      (regStats.open_comment_periods > 0 ? ' (' + regStats.open_comment_periods + ' open)' : '');
 
     const badge = document.getElementById('alertBadge');
     if (unread.unread > 0) {
@@ -422,11 +479,13 @@ async function loadActions() {
   const cat = document.getElementById('enfCategory').value;
   const vio = document.getElementById('enfViolation').value;
   const sev = document.getElementById('enfSeverity').value;
+  const src = document.getElementById('enfSource').value;
 
   if (q) params.set('q', q);
   if (cat) params.set('category', cat);
   if (vio) params.set('violation_type', vio);
   if (sev) params.set('severity', sev);
+  if (src) params.set('source', src);
   params.set('offset', enfOffset);
   params.set('limit', ENF_LIMIT);
 
@@ -441,12 +500,13 @@ async function loadActions() {
       tr.style.cursor = 'pointer';
       tr.onclick = () => showActionDetail(a.id);
       const srcLabel = (a.source || '').replace(/_/g, ' ');
+      const srcBadgeClass = (a.source || '').startsWith('eu_') ? 'source-eu' : 'source-us';
       tr.innerHTML =
         '<td>' + escapeHtml(a.date) + '</td>' +
         '<td>' + escapeHtml(a.company) + '</td>' +
         '<td>' + escapeHtml(a.title ? a.title.substring(0, 80) : '') + '</td>' +
         '<td><span class="severity-badge severity-' + escapeHtml(a.severity) + '">' + escapeHtml(a.severity ? a.severity.replace('_', ' ').toUpperCase() : '') + '</span></td>' +
-        '<td>' + escapeHtml(srcLabel) + '</td>';
+        '<td><span class="source-badge ' + srcBadgeClass + '">' + escapeHtml(srcLabel) + '</span></td>';
       tbody.appendChild(tr);
     });
 
@@ -487,6 +547,10 @@ function buildSourceLabel(a) {
   if (a.source === 'prop_65') return 'View Prop 65 Notice';
   if (a.source === 'nad_decision') return 'View NAD Decision';
   if (a.source === 'state_ag') return 'View AG Press Release';
+  if (a.source === 'eu_rapex') return 'View RAPEX Alert';
+  if (a.source === 'eu_rasff') return 'View RASFF Notification';
+  if (a.source === 'eu_sccs') return 'View SCCS Opinion';
+  if (a.source === 'eu_echa_reach') return 'View ECHA Record';
   return 'View source';
 }
 
@@ -925,18 +989,25 @@ async function saveScheduler() {
 // --- Populate dropdowns ---
 async function loadReference() {
   try {
-    const [cats, viols] = await Promise.all([
+    const [cats, viols, stages] = await Promise.all([
       fetch(API + '/api/reference/product-categories').then(r => r.json()),
       fetch(API + '/api/reference/violation-types').then(r => r.json()),
+      fetch(API + '/api/reference/regulation-stages').then(r => r.json()).catch(() => []),
     ]);
     const enfCat = document.getElementById('enfCategory');
     const ruleCat = document.getElementById('ruleCategory');
     const litCat = document.getElementById('litCategory');
+    const regCat = document.getElementById('regCategory');
     cats.forEach(c => {
       const opt = '<option value="' + escapeHtml(c.value) + '">' + escapeHtml(c.label) + '</option>';
       enfCat.innerHTML += opt;
       ruleCat.innerHTML += opt;
       litCat.innerHTML += opt;
+      regCat.innerHTML += opt;
+    });
+    const regStage = document.getElementById('regStage');
+    stages.forEach(s => {
+      regStage.innerHTML += '<option value="' + escapeHtml(s.value) + '">' + escapeHtml(s.label) + '</option>';
     });
     const enfViol = document.getElementById('enfViolation');
     const litViol = document.getElementById('litViolation');
@@ -965,14 +1036,201 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// --- Regulations ---
+let regOffset = 0;
+const REG_LIMIT = 50;
+let regTotal = 0;
+
+async function loadRegulations() {
+  const params = new URLSearchParams();
+  const q = document.getElementById('regSearch').value.trim();
+  const stage = document.getElementById('regStage').value;
+  const agency = document.getElementById('regAgency').value;
+  const cat = document.getElementById('regCategory').value;
+
+  if (q) params.set('q', q);
+  if (stage) params.set('stage', stage);
+  if (agency) params.set('agency', agency);
+  if (cat) params.set('category', cat);
+  params.set('offset', regOffset);
+  params.set('limit', REG_LIMIT);
+
+  try {
+    const data = await fetch(API + '/api/regulations?' + params).then(r => r.json());
+    regTotal = data.total;
+
+    const tbody = document.querySelector('#regulationsTable tbody');
+    tbody.innerHTML = '';
+    (data.results || []).forEach(c => {
+      const tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.onclick = () => showRegulationDetail(c.id);
+      const stageLabel = (c.stage || '').replace(/_/g, ' ');
+      const cats = (c.product_categories || []).map(x => x.replace(/_/g, ' ')).join(', ');
+      tr.innerHTML =
+        '<td>' + escapeHtml(c.date_published) + '</td>' +
+        '<td>' + escapeHtml(c.title ? c.title.substring(0, 90) : '') + '</td>' +
+        '<td>' + escapeHtml(c.agency) + '</td>' +
+        '<td><span class="stage-badge stage-' + escapeHtml(c.stage) + '">' + escapeHtml(stageLabel) + '</span></td>' +
+        '<td>' + escapeHtml(cats) + '</td>' +
+        '<td>' + escapeHtml(c.date_effective || '-') + '</td>';
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById('regPagInfo').textContent =
+      (regTotal === 0 ? 'No results' : (regOffset + 1) + '-' + Math.min(regOffset + REG_LIMIT, regTotal) + ' of ' + regTotal);
+    document.getElementById('regPrev').disabled = regOffset === 0;
+    document.getElementById('regNext').disabled = regOffset + REG_LIMIT >= regTotal;
+  } catch (e) {
+    console.error('Failed to load regulations:', e);
+  }
+}
+
+function changeRegPage(dir) {
+  regOffset = Math.max(0, regOffset + dir * REG_LIMIT);
+  loadRegulations();
+}
+
+async function showRegulationDetail(id) {
+  try {
+    const c = await fetch(API + '/api/regulations/' + encodeURIComponent(id)).then(r => r.json());
+    const panel = document.getElementById('actionDetail');
+    const stageLabel = (c.stage || '').replace(/_/g, ' ');
+
+    let html =
+      '<button class="close-detail" onclick="closeActionDetail()">&times;</button>' +
+      '<h3>' + escapeHtml(c.title) + '</h3>' +
+      '<div class="field"><div class="field-label">Agency</div><div class="field-value">' + escapeHtml(c.agency) + '</div></div>' +
+      '<div class="field"><div class="field-label">Stage</div><div class="field-value"><span class="stage-badge stage-' + escapeHtml(c.stage) + '">' + escapeHtml(stageLabel) + '</span></div></div>' +
+      '<div class="field"><div class="field-label">Date Published</div><div class="field-value">' + escapeHtml(c.date_published) + '</div></div>';
+
+    if (c.date_effective) {
+      html += '<div class="field"><div class="field-label">Effective Date</div><div class="field-value">' + escapeHtml(c.date_effective) + '</div></div>';
+    }
+    if (c.date_comments_close) {
+      html += '<div class="field"><div class="field-label">Comments Close</div><div class="field-value" style="color:var(--red-600);font-weight:600">' + escapeHtml(c.date_comments_close) + '</div></div>';
+    }
+
+    html +=
+      '<div class="field"><div class="field-label">Categories</div><div class="field-value">' + escapeHtml((c.product_categories || []).join(', ')) + '</div></div>' +
+      '<div class="field"><div class="field-label">Summary</div><div class="field-value description">' + escapeHtml(c.summary) + '</div></div>';
+
+    if (c.cfr_references && c.cfr_references.length > 0) {
+      html += '<div class="field"><div class="field-label">CFR References</div><div class="field-value">' + escapeHtml(c.cfr_references.join(', ')) + '</div></div>';
+    }
+
+    if (c.url) {
+      html += '<div class="field"><a href="' + escapeHtml(c.url) + '" target="_blank">View Source Document &rarr;</a></div>';
+    }
+
+    // Related enforcement
+    html += '<div class="field" id="regRelated"><div class="field-label">Related Enforcement Actions</div><div class="field-value" style="color:var(--gray-500)">Loading...</div></div>';
+
+    panel.innerHTML = html;
+    document.getElementById('actionDetailOverlay').classList.add('active');
+
+    fetch(API + '/api/regulations/' + encodeURIComponent(id) + '/related').then(r => r.json()).then(related => {
+      const container = document.getElementById('regRelated');
+      if (!related || related.length === 0) {
+        container.querySelector('.field-value').textContent = 'No related enforcement actions.';
+      } else {
+        container.querySelector('.field-value').innerHTML = related.slice(0, 10).map(r =>
+          '<div style="padding:0.3rem 0;border-bottom:1px solid var(--gray-200);cursor:pointer" onclick="closeActionDetail();showActionDetail(\'' + escapeHtml(r.id) + '\')">' +
+          '<span style="color:var(--gray-500);font-size:0.8rem">' + escapeHtml(r.date) + '</span> ' +
+          escapeHtml(r.title ? r.title.substring(0, 80) : '') + '</div>'
+        ).join('');
+      }
+    }).catch(() => {
+      const container = document.getElementById('regRelated');
+      if (container) container.querySelector('.field-value').textContent = 'N/A';
+    });
+  } catch (e) {
+    console.error('Failed to load regulation detail:', e);
+  }
+}
+
+function exportRegCSV() {
+  const params = new URLSearchParams();
+  const q = document.getElementById('regSearch').value.trim();
+  const stage = document.getElementById('regStage').value;
+  const agency = document.getElementById('regAgency').value;
+  const cat = document.getElementById('regCategory').value;
+  if (q) params.set('q', q);
+  if (stage) params.set('stage', stage);
+  if (agency) params.set('agency', agency);
+  if (cat) params.set('category', cat);
+  window.open(API + '/api/regulations/export?' + params.toString(), '_blank');
+}
+
+document.getElementById('regSearch').addEventListener('keyup', (e) => {
+  if (e.key === 'Enter') { regOffset = 0; loadRegulations(); }
+});
+
+// --- Source Preferences ---
+async function loadSourcePreferences() {
+  try {
+    const sources = await fetch(API + '/api/settings/sources').then(r => r.json());
+    const container = document.getElementById('sourceToggles');
+    container.innerHTML = '';
+
+    const groups = { US: [], EU: [] };
+    sources.forEach(s => {
+      (groups[s.jurisdiction] || groups.US).push(s);
+    });
+
+    for (const [jurisdiction, items] of Object.entries(groups)) {
+      const group = document.createElement('div');
+      group.className = 'toggle-group';
+      group.innerHTML = '<h4>' + escapeHtml(jurisdiction) + ' Sources</h4>';
+      items.forEach(s => {
+        const row = document.createElement('div');
+        row.className = 'toggle-row';
+        row.innerHTML =
+          '<label><input type="checkbox" data-source-key="' + escapeHtml(s.source_key) + '" ' +
+          (s.enabled ? 'checked' : '') + '> ' + escapeHtml(s.label) + '</label>';
+        group.appendChild(row);
+      });
+      container.appendChild(group);
+    }
+
+    // Also populate enforcement source dropdown
+    const enfSource = document.getElementById('enfSource');
+    // Clear existing options except first
+    enfSource.innerHTML = '<option value="">All Sources</option>';
+    sources.forEach(s => {
+      enfSource.innerHTML += '<option value="' + escapeHtml(s.source_key) + '">' + escapeHtml(s.label) + '</option>';
+    });
+  } catch (e) {
+    console.error('Failed to load source preferences:', e);
+  }
+}
+
+async function saveSourcePreferences() {
+  const checkboxes = document.querySelectorAll('#sourceToggles input[data-source-key]');
+  try {
+    for (const cb of checkboxes) {
+      await fetch(API + '/api/settings/sources', {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ source_key: cb.dataset.sourceKey, enabled: cb.checked }),
+      });
+    }
+    alert('Source preferences saved.');
+  } catch (e) {
+    alert('Failed to save source preferences: ' + e.message);
+  }
+}
+
 // --- Init ---
 loadReference();
 loadDashboard();
 loadActions();
 loadLitigation();
+loadRegulations();
 loadAlertRules();
 loadAlertMatches();
 loadSchedulerStatus();
+loadSourcePreferences();
 </script>
 </body>
 </html>

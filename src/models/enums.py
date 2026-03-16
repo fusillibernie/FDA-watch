@@ -23,6 +23,10 @@ class ViolationType(str, Enum):
     UNAUTHORIZED_COLOR_ADDITIVE = "unauthorized_color_additive"
     DECEPTIVE_ADVERTISING = "deceptive_advertising"
     UNSUBSTANTIATED_CLAIM = "unsubstantiated_claim"
+    PRODUCT_SAFETY_RISK = "product_safety_risk"
+    FOOD_SAFETY_ALERT = "food_safety_alert"
+    RESTRICTED_SUBSTANCE = "restricted_substance"
+    COSMETIC_SAFETY_CONCERN = "cosmetic_safety_concern"
     OTHER = "other"
 
 
@@ -43,3 +47,22 @@ class SourceType(str, Enum):
     CPSC_RECALL = "cpsc_recall"
     NAD_DECISION = "nad_decision"
     STATE_AG = "state_ag"
+    EU_RAPEX = "eu_rapex"
+    EU_RASFF = "eu_rasff"
+    EU_SCCS = "eu_sccs"
+    EU_ECHA_REACH = "eu_echa_reach"
+    FEDERAL_REGISTER = "federal_register"
+    FDA_GUIDANCE = "fda_guidance"
+    EU_OFFICIAL_JOURNAL = "eu_official_journal"
+    IFRA_AMENDMENT = "ifra_amendment"
+
+
+class RegulationStage(str, Enum):
+    PROPOSED_RULE = "proposed_rule"
+    FINAL_RULE = "final_rule"
+    INTERIM_FINAL_RULE = "interim_final_rule"
+    ADVANCE_NOTICE = "advance_notice"
+    GUIDANCE_DRAFT = "guidance_draft"
+    GUIDANCE_FINAL = "guidance_final"
+    AMENDMENT = "amendment"
+    NOTICE = "notice"

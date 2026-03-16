@@ -17,6 +17,12 @@ from src.integrations.cpsc_client import fetch_cpsc_recalls
 from src.integrations.prop65_client import fetch_prop65_notices
 from src.integrations.nad_client import fetch_nad_decisions
 from src.integrations.state_ag_client import fetch_state_ag_actions
+from src.integrations.rapex_client import fetch_rapex_alerts
+from src.integrations.rasff_client import fetch_rasff_notifications
+from src.integrations.sccs_client import fetch_sccs_opinions
+from src.integrations.echa_client import fetch_echa_substances
+from src.models.enums import SourceType
+from src.services.source_preferences import SourcePreferencesService
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +40,13 @@ class IngestionService:
         alert_service: AlertService | None = None,
         classifier: ViolationClassifier | None = None,
         api_key: str | None = None,
+        preferences: SourcePreferencesService | None = None,
     ):
         self.search = search_service or SearchService()
         self.alerts = alert_service or AlertService()
         self.classifier = classifier or ViolationClassifier()
         self.api_key = api_key
+        self.preferences = preferences or SourcePreferencesService()
         self._sync_state = self._load_sync_state()
 
     def _load_sync_state(self) -> dict:
@@ -77,45 +85,65 @@ class IngestionService:
         all_new_actions: list[RegulatoryAction] = []
         summary: dict = {"sources": {}}
 
-        if source is None or source == "openfda":
+        if (source is None or source == "openfda") and self.preferences.is_enabled(SourceType.OPENFDA_ENFORCEMENT):
             actions = await self._ingest_openfda()
             all_new_actions.extend(actions)
             summary["sources"]["openfda"] = len(actions)
 
-        if source is None or source == "warning_letters":
+        if (source is None or source == "warning_letters") and self.preferences.is_enabled(SourceType.FDA_WARNING_LETTER):
             actions = await self._ingest_warning_letters()
             all_new_actions.extend(actions)
             summary["sources"]["warning_letters"] = len(actions)
 
-        if source is None or source == "ftc":
+        if (source is None or source == "ftc") and self.preferences.is_enabled(SourceType.FTC_ACTION):
             actions = await self._ingest_ftc()
             all_new_actions.extend(actions)
             summary["sources"]["ftc"] = len(actions)
 
-        if source is None or source == "classaction":
+        if (source is None or source == "classaction") and self.preferences.is_enabled(SourceType.CLASS_ACTION):
             actions = await self._ingest_classaction()
             all_new_actions.extend(actions)
             summary["sources"]["classaction"] = len(actions)
 
-        if source is None or source == "cpsc":
+        if (source is None or source == "cpsc") and self.preferences.is_enabled(SourceType.CPSC_RECALL):
             actions = await self._ingest_cpsc()
             all_new_actions.extend(actions)
             summary["sources"]["cpsc"] = len(actions)
 
-        if source is None or source == "prop65":
+        if (source is None or source == "prop65") and self.preferences.is_enabled(SourceType.PROP_65):
             actions = await self._ingest_prop65()
             all_new_actions.extend(actions)
             summary["sources"]["prop65"] = len(actions)
 
-        if source is None or source == "nad":
+        if (source is None or source == "nad") and self.preferences.is_enabled(SourceType.NAD_DECISION):
             actions = await self._ingest_nad()
             all_new_actions.extend(actions)
             summary["sources"]["nad"] = len(actions)
 
-        if source is None or source == "state_ag":
+        if (source is None or source == "state_ag") and self.preferences.is_enabled(SourceType.STATE_AG):
             actions = await self._ingest_state_ag()
             all_new_actions.extend(actions)
             summary["sources"]["state_ag"] = len(actions)
+
+        if (source is None or source == "eu_rapex") and self.preferences.is_enabled(SourceType.EU_RAPEX):
+            actions = await self._ingest_rapex()
+            all_new_actions.extend(actions)
+            summary["sources"]["eu_rapex"] = len(actions)
+
+        if (source is None or source == "eu_rasff") and self.preferences.is_enabled(SourceType.EU_RASFF):
+            actions = await self._ingest_rasff()
+            all_new_actions.extend(actions)
+            summary["sources"]["eu_rasff"] = len(actions)
+
+        if (source is None or source == "eu_sccs") and self.preferences.is_enabled(SourceType.EU_SCCS):
+            actions = await self._ingest_sccs()
+            all_new_actions.extend(actions)
+            summary["sources"]["eu_sccs"] = len(actions)
+
+        if (source is None or source == "eu_echa") and self.preferences.is_enabled(SourceType.EU_ECHA_REACH):
+            actions = await self._ingest_echa()
+            all_new_actions.extend(actions)
+            summary["sources"]["eu_echa"] = len(actions)
 
         # Classify all new actions
         self.classifier.classify_batch(all_new_actions)
@@ -260,6 +288,62 @@ class IngestionService:
             return []
 
         self._sync_state["state_ag_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_rapex(self) -> list[RegulatoryAction]:
+        """Fetch EU Safety Gate (RAPEX) alerts."""
+        date_from = self._sync_state.get("rapex_last_fetch")
+        try:
+            actions = await fetch_rapex_alerts(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch RAPEX alerts: %s", e)
+            return []
+
+        self._sync_state["rapex_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_rasff(self) -> list[RegulatoryAction]:
+        """Fetch EU RASFF food/feed notifications."""
+        date_from = self._sync_state.get("rasff_last_fetch")
+        try:
+            actions = await fetch_rasff_notifications(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch RASFF notifications: %s", e)
+            return []
+
+        self._sync_state["rasff_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_sccs(self) -> list[RegulatoryAction]:
+        """Fetch EU SCCS cosmetic safety opinions."""
+        date_from = self._sync_state.get("sccs_last_fetch")
+        try:
+            actions = await fetch_sccs_opinions(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch SCCS opinions: %s", e)
+            return []
+
+        self._sync_state["sccs_last_fetch"] = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        return actions
+
+    async def _ingest_echa(self) -> list[RegulatoryAction]:
+        """Fetch ECHA/REACH substance actions."""
+        date_from = self._sync_state.get("echa_last_fetch")
+        try:
+            actions = await fetch_echa_substances(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch ECHA substances: %s", e)
+            return []
+
+        self._sync_state["echa_last_fetch"] = (
             datetime.now(timezone.utc).strftime("%Y-%m-%d")
         )
         return actions

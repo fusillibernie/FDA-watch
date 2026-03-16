@@ -13,7 +13,9 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from src.models.enums import ProductCategory, Severity, SourceType, ViolationType
+import asyncio
+
+from src.models.enums import ProductCategory, RegulationStage, Severity, SourceType, ViolationType
 from src.services.alert_service import AlertService
 from src.services.classifier import ViolationClassifier
 from src.services.ingestion_service import IngestionService
@@ -21,6 +23,9 @@ from src.services.scheduler_service import SchedulerService
 from src.services.auth import require_auth
 from src.services.export_service import export_csv
 from src.services.search_service import SearchService
+from src.services.source_preferences import SourcePreferencesService, EU_SOURCES
+from src.services.regulation_search_service import RegulationSearchService
+from src.services.regulation_ingestion_service import RegulationIngestionService
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -53,14 +58,32 @@ app.add_middleware(
 search_service = SearchService()
 alert_service = AlertService()
 classifier = ViolationClassifier()
+source_preferences = SourcePreferencesService()
 ingestion_service = IngestionService(
     search_service=search_service,
     alert_service=alert_service,
     classifier=classifier,
     api_key=os.environ.get("OPENFDA_API_KEY"),
+    preferences=source_preferences,
 )
+regulation_search = RegulationSearchService()
+regulation_ingestion = RegulationIngestionService(
+    regulation_search=regulation_search,
+    preferences=source_preferences,
+)
+
+
+async def _combined_ingest():
+    results = await asyncio.gather(
+        ingestion_service.ingest_all(),
+        regulation_ingestion.ingest_all(),
+        return_exceptions=True,
+    )
+    return results
+
+
 scheduler_service = SchedulerService(
-    ingest_callback=lambda: ingestion_service.ingest_all(),
+    ingest_callback=_combined_ingest,
 )
 
 
@@ -104,7 +127,7 @@ async def root():
 @limiter.limit("5/minute")
 async def trigger_ingest(
     request: Request,
-    source: str | None = Query(None, description="Specific source: openfda, warning_letters, ftc, classaction, cpsc, prop65, nad, state_ag"),
+    source: str | None = Query(None, description="Specific source: openfda, warning_letters, ftc, classaction, cpsc, prop65, nad, state_ag, eu_rapex, eu_rasff, eu_sccs, eu_echa"),
 ):
     """Trigger data ingestion from FDA sources."""
     summary = await ingestion_service.ingest_all(source=source)
@@ -377,6 +400,30 @@ async def update_scheduler(body: SchedulerConfig):
 
 
 # ---------------------------------------------------------------------------
+# Source Preferences
+# ---------------------------------------------------------------------------
+
+
+class SourcePreferenceUpdate(BaseModel):
+    source_key: str
+    enabled: bool
+
+
+@app.get("/api/settings/sources")
+async def get_source_preferences():
+    """Return all source preferences with enabled/disabled state."""
+    return source_preferences.get_all()
+
+
+@app.put("/api/settings/sources", dependencies=[Depends(require_auth)])
+async def update_source_preference(body: SourcePreferenceUpdate):
+    """Toggle a source on or off."""
+    if not source_preferences.update(body.source_key, body.enabled):
+        raise HTTPException(400, f"Unknown source key: {body.source_key}")
+    return {"source_key": body.source_key, "enabled": body.enabled}
+
+
+# ---------------------------------------------------------------------------
 # Reference
 # ---------------------------------------------------------------------------
 
@@ -386,9 +433,140 @@ async def list_violation_types():
     return [{"value": v.value, "label": v.name.replace("_", " ").title()} for v in ViolationType]
 
 
+@app.get("/api/reference/source-types")
+async def list_source_types():
+    """Return all source types with labels and jurisdiction."""
+    return [
+        {
+            "value": s.value,
+            "label": s.name.replace("_", " ").title(),
+            "jurisdiction": "EU" if s in EU_SOURCES else "US",
+        }
+        for s in SourceType
+    ]
+
+
 @app.get("/api/reference/product-categories")
 async def list_product_categories():
     return [{"value": c.value, "label": c.name.replace("_", " ").title()} for c in ProductCategory]
+
+
+@app.get("/api/reference/regulation-stages")
+async def list_regulation_stages():
+    return [{"value": s.value, "label": s.name.replace("_", " ").title()} for s in RegulationStage]
+
+
+# ---------------------------------------------------------------------------
+# Regulations
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/regulations/ingest", dependencies=[Depends(require_auth)])
+@limiter.limit("5/minute")
+async def trigger_regulation_ingest(
+    request: Request,
+    source: str | None = Query(None, description="Specific source: federal_register, fda_guidance, eurlex, ifra"),
+):
+    """Trigger regulation change ingestion."""
+    summary = await regulation_ingestion.ingest_all(source=source)
+    return summary
+
+
+@app.get("/api/regulations/stats")
+async def regulation_stats():
+    """Aggregated regulation change statistics."""
+    return regulation_search.stats()
+
+
+@app.get("/api/regulations")
+async def list_regulations(
+    q: str | None = Query(None),
+    stage: RegulationStage | None = Query(None),
+    agency: str | None = Query(None),
+    category: ProductCategory | None = Query(None),
+    source: SourceType | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List regulation changes with filtering and search."""
+    results, total = regulation_search.search(
+        q=q, stage=stage, agency=agency, category=category,
+        source=source, date_from=date_from, date_to=date_to,
+        offset=offset, limit=limit,
+    )
+    return {
+        "results": [c.model_dump() for c in results],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@app.get("/api/regulations/export")
+async def export_regulations(
+    q: str | None = Query(None),
+    stage: RegulationStage | None = Query(None),
+    agency: str | None = Query(None),
+    category: ProductCategory | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+):
+    """Export filtered regulation changes as CSV."""
+    results, _ = regulation_search.search(
+        q=q, stage=stage, agency=agency, category=category,
+        date_from=date_from, date_to=date_to,
+        offset=0, limit=10000,
+    )
+    import csv
+    import io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Title", "Agency", "Stage", "Date Published", "Effective Date", "Comments Close", "Categories", "URL"])
+    for c in results:
+        writer.writerow([
+            c.id, c.title, c.agency, c.stage.value, c.date_published,
+            c.date_effective or "", c.date_comments_close or "",
+            ", ".join(cat.value for cat in c.product_categories),
+            c.url or "",
+        ])
+    csv_content = output.getvalue()
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=regulation_changes_export.csv"},
+    )
+
+
+@app.get("/api/regulations/{change_id}")
+async def get_regulation(change_id: str):
+    """Get a single regulation change by ID."""
+    change = regulation_search.get_change(change_id)
+    if not change:
+        raise HTTPException(404, "Regulation change not found")
+    return change.model_dump()
+
+
+@app.get("/api/regulations/{change_id}/related")
+async def get_related_enforcement(change_id: str):
+    """Find enforcement actions related to a regulation change."""
+    change = regulation_search.get_change(change_id)
+    if not change:
+        raise HTTPException(404, "Regulation change not found")
+    # Find enforcement actions with matching product categories
+    related = []
+    for cat in change.product_categories:
+        results, _ = search_service.search(category=cat, limit=10)
+        related.extend(results)
+    # Deduplicate
+    seen = set()
+    unique = []
+    for a in related:
+        if a.id not in seen:
+            seen.add(a.id)
+            unique.append(a)
+    return [a.model_dump() for a in unique[:20]]
 
 
 # ---------------------------------------------------------------------------
