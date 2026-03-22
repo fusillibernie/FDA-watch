@@ -102,7 +102,7 @@ def _parse_prop65_html(html: str, date_from: str | None = None) -> list[Regulato
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=730)
+        cutoff = datetime.now() - timedelta(days=1825)
 
     # Find table rows: <tr> blocks with <td> cells
     row_pattern = re.compile(r'<tr[^>]*>(.*?)</tr>', re.DOTALL | re.IGNORECASE)

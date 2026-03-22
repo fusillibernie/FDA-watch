@@ -41,9 +41,9 @@ def _build_search_query(date_from: str | None = None) -> str:
     """Build openFDA search query string for date filtering."""
     if date_from:
         return f"report_date:[{date_from} TO *]"
-    # Default: last 2 years
-    two_years_ago = (datetime.now() - timedelta(days=730)).strftime("%Y%m%d")
-    return f"report_date:[{two_years_ago} TO *]"
+    # Default: last 5 years
+    five_years_ago = (datetime.now() - timedelta(days=1825)).strftime("%Y%m%d")
+    return f"report_date:[{five_years_ago} TO *]"
 
 
 def _map_record(record: dict, endpoint: str) -> RegulatoryAction:

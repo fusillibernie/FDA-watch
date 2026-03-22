@@ -146,7 +146,7 @@ def _parse_classaction_page(
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=730)
+        cutoff = datetime.now() - timedelta(days=1825)
 
     # Match: <h3 ...><a href="/news/slug" ...>Title</a></h3>
     # Also match: <a href="/news/slug" ...><h3>Title</h3></a>

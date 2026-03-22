@@ -128,7 +128,7 @@ async def root():
 @limiter.limit("5/minute")
 async def trigger_ingest(
     request: Request,
-    source: str | None = Query(None, description="Specific source: openfda, warning_letters, ftc, classaction, cpsc, prop65, nad, state_ag, eu_rapex, eu_rasff, eu_sccs, eu_echa"),
+    source: str | None = Query(None, description="Specific source: openfda, warning_letters, ftc, classaction, cpsc, prop65, state_ag, eu_rapex, eu_rasff, eu_sccs, eu_echa"),
 ):
     """Trigger data ingestion from FDA sources."""
     summary = await ingestion_service.ingest_all(source=source)
@@ -139,6 +139,29 @@ async def trigger_ingest(
 async def ingest_status():
     """Get last sync timestamps and record counts."""
     return ingestion_service.get_status()
+
+
+@app.post("/api/ingest/reset", dependencies=[Depends(require_auth)])
+@limiter.limit("2/minute")
+async def reset_and_resync(request: Request):
+    """Reset sync state and re-ingest all data from scratch (5-year lookback)."""
+    ingestion_service.reset_sync_state()
+    regulation_ingestion.reset_sync_state()
+    results = await asyncio.gather(
+        ingestion_service.ingest_all(),
+        regulation_ingestion.ingest_all(),
+        return_exceptions=True,
+    )
+    summary = {"enforcement": None, "regulations": None}
+    if not isinstance(results[0], Exception):
+        summary["enforcement"] = results[0]
+    else:
+        summary["enforcement"] = {"error": str(results[0])}
+    if not isinstance(results[1], Exception):
+        summary["regulations"] = results[1]
+    else:
+        summary["regulations"] = {"error": str(results[1])}
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +431,8 @@ async def update_scheduler(body: SchedulerConfig):
 class SourcePreferenceUpdate(BaseModel):
     source_key: str
     enabled: bool
+    categories: list[str] | None = None
+    lookback_days: int | None = None
 
 
 @app.get("/api/settings/sources")
@@ -418,9 +443,13 @@ async def get_source_preferences():
 
 @app.put("/api/settings/sources", dependencies=[Depends(require_auth)])
 async def update_source_preference(body: SourcePreferenceUpdate):
-    """Toggle a source on or off."""
+    """Toggle a source on or off, optionally with category filters."""
     if not source_preferences.update(body.source_key, body.enabled):
         raise HTTPException(400, f"Unknown source key: {body.source_key}")
+    if body.categories is not None:
+        source_preferences.update_categories(body.source_key, body.categories)
+    if body.lookback_days is not None:
+        source_preferences.update_lookback_days(body.source_key, body.lookback_days)
     return {"source_key": body.source_key, "enabled": body.enabled}
 
 
@@ -577,8 +606,8 @@ async def get_related_enforcement(change_id: str):
 LITIGATION_SOURCES = {
     SourceType.FTC_ACTION,
     SourceType.CLASS_ACTION,
-    SourceType.NAD_DECISION,
     SourceType.STATE_AG,
+    SourceType.NAD_DECISION,
 }
 
 

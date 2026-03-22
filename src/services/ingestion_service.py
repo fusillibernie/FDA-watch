@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from src.models.enforcement import RegulatoryAction, WarningLetterMeta
@@ -15,8 +15,8 @@ from src.integrations.ftc_client import fetch_ftc_cases
 from src.integrations.classaction_client import fetch_classaction_lawsuits
 from src.integrations.cpsc_client import fetch_cpsc_recalls
 from src.integrations.prop65_client import fetch_prop65_notices
-from src.integrations.nad_client import fetch_nad_decisions
 from src.integrations.state_ag_client import fetch_state_ag_actions
+from src.integrations.nad_client import fetch_nad_decisions
 from src.integrations.rapex_client import fetch_rapex_alerts
 from src.integrations.rasff_client import fetch_rasff_notifications
 from src.integrations.sccs_client import fetch_sccs_opinions
@@ -71,6 +71,57 @@ class IngestionService:
             "total_actions": stats.get("total_actions", 0),
         }
 
+    def reset_sync_state(self, source: str | None = None) -> None:
+        """Clear sync state to force a full historical re-fetch.
+
+        Args:
+            source: Specific source key to reset, or None for all.
+        """
+        if source:
+            key = f"{source}_last_fetch"
+            self._sync_state.pop(key, None)
+        else:
+            self._sync_state.clear()
+        self._save_sync_state()
+        logger.info("Sync state reset%s", f" for {source}" if source else " (all sources)")
+
+    def _advance_sync_state(self, sync_key: str, actions: list[RegulatoryAction]) -> None:
+        """Advance sync cursor to the latest date seen in results.
+
+        If no results, the cursor stays put so the gap is retried next run.
+        """
+        if not actions:
+            return
+
+        dates = []
+        for a in actions:
+            if a.date:
+                try:
+                    dates.append(datetime.strptime(a.date, "%Y-%m-%d"))
+                except ValueError:
+                    continue
+
+        if not dates:
+            return
+
+        latest = max(dates)
+        next_day = (latest + timedelta(days=1)).strftime("%Y-%m-%d")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self._sync_state[sync_key] = min(next_day, today)
+
+    def _get_date_from(self, sync_key: str, source_key: str) -> str | None:
+        """Get the effective date_from for a source.
+
+        Uses sync state if available, otherwise computes from lookback_days preference.
+        Returns None only if we want the client's own default (shouldn't happen now).
+        """
+        saved = self._sync_state.get(sync_key)
+        if saved:
+            return saved
+        # No sync state — use lookback preference
+        days = self.preferences.get_lookback_days(source_key)
+        return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
     async def ingest_all(self, source: str | None = None) -> dict:
         """Run full ingestion pipeline.
 
@@ -115,15 +166,15 @@ class IngestionService:
             all_new_actions.extend(actions)
             summary["sources"]["prop65"] = len(actions)
 
-        if (source is None or source == "nad") and self.preferences.is_enabled(SourceType.NAD_DECISION):
-            actions = await self._ingest_nad()
-            all_new_actions.extend(actions)
-            summary["sources"]["nad"] = len(actions)
-
         if (source is None or source == "state_ag") and self.preferences.is_enabled(SourceType.STATE_AG):
             actions = await self._ingest_state_ag()
             all_new_actions.extend(actions)
             summary["sources"]["state_ag"] = len(actions)
+
+        if (source is None or source == "nad") and self.preferences.is_enabled(SourceType.NAD_DECISION):
+            actions = await self._ingest_nad()
+            all_new_actions.extend(actions)
+            summary["sources"]["nad"] = len(actions)
 
         if (source is None or source == "eu_rapex") and self.preferences.is_enabled(SourceType.EU_RAPEX):
             actions = await self._ingest_rapex()
@@ -165,7 +216,7 @@ class IngestionService:
 
     async def _ingest_openfda(self) -> list[RegulatoryAction]:
         """Fetch from both food and drug enforcement endpoints."""
-        date_from = self._sync_state.get("openfda_last_fetch")
+        date_from = self._get_date_from("openfda_last_fetch", "openfda_enforcement")
         # Convert ISO date to YYYYMMDD for openFDA
         openfda_date = None
         if date_from:
@@ -186,12 +237,12 @@ class IngestionService:
             except Exception as e:
                 logger.error("Failed to fetch openFDA/%s: %s", endpoint, e)
 
-        self._sync_state["openfda_last_fetch"] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self._advance_sync_state("openfda_last_fetch", all_actions)
         return all_actions
 
     async def _ingest_warning_letters(self) -> list[RegulatoryAction]:
         """Fetch and parse FDA warning letters XML."""
-        date_from = self._sync_state.get("warning_letters_last_fetch")
+        date_from = self._get_date_from("warning_letters_last_fetch", "fda_warning_letter")
 
         try:
             letters, actions = await fetch_warning_letters(date_from=date_from)
@@ -203,149 +254,128 @@ class IngestionService:
         if letters:
             self._save_letters(letters)
 
-        self._sync_state["warning_letters_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("warning_letters_last_fetch", actions)
         return actions
 
     async def _ingest_ftc(self) -> list[RegulatoryAction]:
         """Fetch FTC enforcement cases from ftc.gov."""
-        date_from = self._sync_state.get("ftc_last_fetch")
+        date_from = self._get_date_from("ftc_last_fetch", "ftc_action")
         try:
             actions = await fetch_ftc_cases(date_from=date_from)
         except Exception as e:
             logger.error("Failed to fetch FTC cases: %s", e)
             return []
 
-        self._sync_state["ftc_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("ftc_last_fetch", actions)
         return actions
 
     async def _ingest_classaction(self) -> list[RegulatoryAction]:
         """Fetch class action lawsuits."""
-        date_from = self._sync_state.get("classaction_last_fetch")
+        date_from = self._get_date_from("classaction_last_fetch", "class_action")
         try:
             actions = await fetch_classaction_lawsuits(date_from=date_from)
         except Exception as e:
             logger.error("Failed to fetch class actions: %s", e)
             return []
 
-        self._sync_state["classaction_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("classaction_last_fetch", actions)
         return actions
 
     async def _ingest_cpsc(self) -> list[RegulatoryAction]:
         """Fetch CPSC product recalls."""
-        date_from = self._sync_state.get("cpsc_last_fetch")
+        date_from = self._get_date_from("cpsc_last_fetch", "cpsc_recall")
         try:
             actions = await fetch_cpsc_recalls(date_from=date_from)
         except Exception as e:
             logger.error("Failed to fetch CPSC recalls: %s", e)
             return []
 
-        self._sync_state["cpsc_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("cpsc_last_fetch", actions)
         return actions
 
     async def _ingest_prop65(self) -> list[RegulatoryAction]:
         """Fetch Prop 65 60-day notices."""
-        date_from = self._sync_state.get("prop65_last_fetch")
+        date_from = self._get_date_from("prop65_last_fetch", "prop_65")
         try:
             actions = await fetch_prop65_notices(date_from=date_from)
         except Exception as e:
             logger.error("Failed to fetch Prop 65 notices: %s", e)
             return []
 
-        self._sync_state["prop65_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
-        return actions
-
-    async def _ingest_nad(self) -> list[RegulatoryAction]:
-        """Fetch NAD advertising decisions."""
-        date_from = self._sync_state.get("nad_last_fetch")
-        try:
-            actions = await fetch_nad_decisions(date_from=date_from)
-        except Exception as e:
-            logger.error("Failed to fetch NAD decisions: %s", e)
-            return []
-
-        self._sync_state["nad_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("prop65_last_fetch", actions)
         return actions
 
     async def _ingest_state_ag(self) -> list[RegulatoryAction]:
         """Fetch state AG enforcement actions."""
-        date_from = self._sync_state.get("state_ag_last_fetch")
+        date_from = self._get_date_from("state_ag_last_fetch", "state_ag")
         try:
             actions = await fetch_state_ag_actions(date_from=date_from)
         except Exception as e:
             logger.error("Failed to fetch state AG actions: %s", e)
             return []
 
-        self._sync_state["state_ag_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("state_ag_last_fetch", actions)
+        return actions
+
+    async def _ingest_nad(self) -> list[RegulatoryAction]:
+        """Fetch NAD decisions from BBB Programs sitemap."""
+        date_from = self._get_date_from("nad_last_fetch", "nad_decision")
+        try:
+            actions = await fetch_nad_decisions(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch NAD decisions: %s", e)
+            return []
+
+        self._advance_sync_state("nad_last_fetch", actions)
         return actions
 
     async def _ingest_rapex(self) -> list[RegulatoryAction]:
         """Fetch EU Safety Gate (RAPEX) alerts."""
-        date_from = self._sync_state.get("rapex_last_fetch")
+        date_from = self._get_date_from("rapex_last_fetch", "eu_rapex")
+        categories = self.preferences.get_categories("eu_rapex")
         try:
-            actions = await fetch_rapex_alerts(date_from=date_from)
+            actions = await fetch_rapex_alerts(date_from=date_from, categories=categories)
         except Exception as e:
             logger.error("Failed to fetch RAPEX alerts: %s", e)
             return []
 
-        self._sync_state["rapex_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("rapex_last_fetch", actions)
         return actions
 
     async def _ingest_rasff(self) -> list[RegulatoryAction]:
         """Fetch EU RASFF food/feed notifications."""
-        date_from = self._sync_state.get("rasff_last_fetch")
+        date_from = self._get_date_from("rasff_last_fetch", "eu_rasff")
         try:
             actions = await fetch_rasff_notifications(date_from=date_from)
         except Exception as e:
             logger.error("Failed to fetch RASFF notifications: %s", e)
             return []
 
-        self._sync_state["rasff_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("rasff_last_fetch", actions)
         return actions
 
     async def _ingest_sccs(self) -> list[RegulatoryAction]:
         """Fetch EU SCCS cosmetic safety opinions."""
-        date_from = self._sync_state.get("sccs_last_fetch")
+        date_from = self._get_date_from("sccs_last_fetch", "eu_sccs")
         try:
             actions = await fetch_sccs_opinions(date_from=date_from)
         except Exception as e:
             logger.error("Failed to fetch SCCS opinions: %s", e)
             return []
 
-        self._sync_state["sccs_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("sccs_last_fetch", actions)
         return actions
 
     async def _ingest_echa(self) -> list[RegulatoryAction]:
         """Fetch ECHA/REACH substance actions."""
-        date_from = self._sync_state.get("echa_last_fetch")
+        date_from = self._get_date_from("echa_last_fetch", "eu_echa_reach")
         try:
             actions = await fetch_echa_substances(date_from=date_from)
         except Exception as e:
             logger.error("Failed to fetch ECHA substances: %s", e)
             return []
 
-        self._sync_state["echa_last_fetch"] = (
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        self._advance_sync_state("echa_last_fetch", actions)
         return actions
 
     def _save_letters(self, new_letters: list[WarningLetterMeta]) -> None:

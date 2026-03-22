@@ -1,84 +1,140 @@
-"""NAD (National Advertising Division) decision client.
+"""NAD (National Advertising Division) decisions client.
 
-Scrapes BBB National Programs press releases for NAD case decisions.
-Falls back to news/press release pages rather than the JS-rendered case library.
+Parses the BBB Programs sitemap at https://bbbprograms.org/sitemap.xml
+to extract NAD decision URLs and dates. The NAD site is a React SPA with
+no public API, but the sitemap contains structured data: URL slugs with
+decision titles and lastmod dates.
 
-Heavy category filtering — only keeps food, supplement, cosmetic, OTC drug cases.
+Decision URLs follow the pattern:
+  /Education-and-Resources/newsroom/Descisions/<Slug-With-Title>
 """
 
+import hashlib
 import logging
 import re
-import uuid
 from datetime import datetime, timedelta
 
 import httpx
+from defusedxml import ElementTree
 
 from src.models.enums import ProductCategory, Severity, SourceType, ViolationType
 from src.models.enforcement import RegulatoryAction
 
 logger = logging.getLogger(__name__)
 
-NAD_URL = "https://bbbprograms.org/media-center"
+SITEMAP_URL = "https://bbbprograms.org/sitemap.xml"
+DECISION_PATH_PREFIX = "/Education-and-Resources/newsroom/Descisions/"
+SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
 BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml",
+    "Accept": "text/xml,application/xml",
 }
 
-PRODUCT_KEYWORDS = {
+# Keywords in slugs that indicate product categories
+CATEGORY_KEYWORDS = {
     "food": ProductCategory.FOOD,
-    "beverage": ProductCategory.FOOD,
-    "snack": ProductCategory.FOOD,
-    "cereal": ProductCategory.FOOD,
-    "dairy": ProductCategory.FOOD,
-    "yogurt": ProductCategory.FOOD,
-    "juice": ProductCategory.FOOD,
-    "water": ProductCategory.FOOD,
-    "coffee": ProductCategory.FOOD,
-    "tea": ProductCategory.FOOD,
-    "protein bar": ProductCategory.FOOD,
     "supplement": ProductCategory.DIETARY_SUPPLEMENT,
     "vitamin": ProductCategory.DIETARY_SUPPLEMENT,
     "probiotic": ProductCategory.DIETARY_SUPPLEMENT,
-    "nutraceutical": ProductCategory.DIETARY_SUPPLEMENT,
-    "weight loss": ProductCategory.DIETARY_SUPPLEMENT,
+    "protein": ProductCategory.DIETARY_SUPPLEMENT,
+    "nutrition": ProductCategory.DIETARY_SUPPLEMENT,
     "diet": ProductCategory.DIETARY_SUPPLEMENT,
     "cosmetic": ProductCategory.COSMETIC,
     "skincare": ProductCategory.COSMETIC,
-    "skin care": ProductCategory.COSMETIC,
-    "shampoo": ProductCategory.COSMETIC,
     "beauty": ProductCategory.COSMETIC,
-    "lotion": ProductCategory.COSMETIC,
-    "sunscreen": ProductCategory.COSMETIC,
+    "shampoo": ProductCategory.COSMETIC,
     "hair": ProductCategory.COSMETIC,
-    "toothpaste": ProductCategory.COSMETIC,
-    "deodorant": ProductCategory.COSMETIC,
+    "sunscreen": ProductCategory.COSMETIC,
     "drug": ProductCategory.OTC_DRUG,
-    "otc": ProductCategory.OTC_DRUG,
-    "pain relief": ProductCategory.OTC_DRUG,
     "medicine": ProductCategory.OTC_DRUG,
+    "pet": ProductCategory.FOOD,
+    "dog": ProductCategory.FOOD,
+    "cat": ProductCategory.FOOD,
+    "beverage": ProductCategory.FOOD,
+    "snack": ProductCategory.FOOD,
+    "cereal": ProductCategory.FOOD,
+    "organic": ProductCategory.FOOD,
 }
 
 VIOLATION_KEYWORDS = {
     "misleading": ViolationType.DECEPTIVE_ADVERTISING,
     "deceptive": ViolationType.DECEPTIVE_ADVERTISING,
     "false": ViolationType.DECEPTIVE_ADVERTISING,
-    "advertising": ViolationType.DECEPTIVE_ADVERTISING,
     "unsubstantiated": ViolationType.UNSUBSTANTIATED_CLAIM,
     "claims": ViolationType.UNSUBSTANTIATED_CLAIM,
-    "substantiation": ViolationType.UNSUBSTANTIATED_CLAIM,
     "labeling": ViolationType.LABELING_VIOLATION,
     "label": ViolationType.LABELING_VIOLATION,
+    "refers": ViolationType.DECEPTIVE_ADVERTISING,  # "Refers X to FTC" = serious
+    "modify": ViolationType.DECEPTIVE_ADVERTISING,
+    "discontinue": ViolationType.DECEPTIVE_ADVERTISING,
 }
+
+
+def _slug_to_title(slug: str) -> str:
+    """Convert URL slug to readable title."""
+    # Replace hyphens, clean up numbering suffixes like "(2)"
+    title = slug.replace("-", " ").strip()
+    # Remove trailing parenthesized numbers like " (2)"
+    title = re.sub(r"\s*\(\d+\)\s*$", "", title)
+    # Title-case but preserve acronyms like NAD, FTC, CARU
+    words = title.split()
+    result = []
+    acronyms = {"nad", "ftc", "caru", "dssrc", "daap", "bbb", "otc", "fda"}
+    for w in words:
+        if w.lower() in acronyms:
+            result.append(w.upper())
+        else:
+            result.append(w.capitalize())
+    return " ".join(result)
+
+
+def _extract_company(title: str) -> str:
+    """Extract company name from NAD decision title.
+
+    NAD sitemap slugs are often truncated (~50 chars), so company names
+    may be incomplete. We extract the best guess and mark truncated names.
+    """
+    # "National Advertising Division Finds [Company] ..."
+    # "National Advertising Division Recommends [Company] Modify..."
+    # "National Advertising Division Refers [Company] To..."
+    # "National Advertising Division Will Refer [Company] To..."
+    for pattern in [
+        r"National Advertising Division (?:Finds|Recommends|Refers|Determines|Will Refer) (.+?)(?:'s | To | Should | Has | Is | Are | Claims | Modify | Discontinue | Not | Quantif| Pric)",
+        r"National Advertising Review Board Recommends (.+?)(?:'s | To | Should | Modify | Discontinue )",
+    ]:
+        match = re.search(pattern, title)
+        if match:
+            return match.group(1).strip()[:200]
+
+    # If pattern matched but no stop word (truncated slug), take what's after the verb
+    for prefix_verb in ["Finds ", "Recommends ", "Refers ", "Determines ", "Will Refer ", "Review Board Recommends "]:
+        full_prefix = "National Advertising Division " + prefix_verb
+        if full_prefix in title:
+            remainder = title.split(full_prefix, 1)[1].strip()
+            # Return the remainder (likely truncated but still useful)
+            return remainder[:200] if remainder else title[:200]
+
+    # CARU/DSSRC patterns
+    for org in ["CARU ", "DSSRC "]:
+        if org in title:
+            idx = title.index(org)
+            remainder = title[idx + len(org):]
+            for verb in ["Recommends ", "Refers ", "Finds "]:
+                if verb in remainder:
+                    after = remainder.split(verb, 1)[1]
+                    return after.split(",")[0].split(" To ")[0].split(" Modify ")[0].strip()[:200]
+
+    return title[:200]
 
 
 def _classify_categories(text: str) -> list[ProductCategory]:
     categories: list[ProductCategory] = []
     lower = text.lower()
-    for keyword, cat in PRODUCT_KEYWORDS.items():
+    for keyword, cat in CATEGORY_KEYWORDS.items():
         if keyword in lower and cat not in categories:
             categories.append(cat)
-    return categories
+    return categories or [ProductCategory.FOOD]  # Default: NAD covers consumer products
 
 
 def _classify_violations(text: str) -> list[ViolationType]:
@@ -90,45 +146,21 @@ def _classify_violations(text: str) -> list[ViolationType]:
     return violations or [ViolationType.DECEPTIVE_ADVERTISING]
 
 
-def _extract_company(title: str) -> str:
-    """Extract company name from NAD press release title.
+async def fetch_nad_decisions(
+    date_from: str | None = None,
+) -> list[RegulatoryAction]:
+    """Fetch NAD decisions from BBB Programs sitemap.
 
-    Common patterns:
-      "NAD Recommends Company Discontinue..."
-      "NAD Finds Company's Claims..."
-      "Company Voluntarily Modifies..."
+    Parses sitemap XML for decision URLs and dates.
+    Since the actual pages are React-rendered, we extract
+    structured data from URL slugs and lastmod dates.
+
+    Args:
+        date_from: ISO date string for incremental sync
+
+    Returns:
+        List of RegulatoryAction records
     """
-    # "NAD Recommends X Discontinue/Modify..."
-    match = re.search(
-        r'NAD\s+(?:Recommends?|Finds?|Refers?|Reviews?)\s+(.+?)\s+(?:Discontinue|Modify|Claims?|Advertising|Should)',
-        title, re.IGNORECASE,
-    )
-    if match:
-        return match.group(1).strip("'\"").strip()[:200]
-
-    # "X Voluntarily..." or "X Agrees..."
-    match = re.search(
-        r'^(.+?)\s+(?:Voluntarily|Agrees?|Will)\s',
-        title, re.IGNORECASE,
-    )
-    if match:
-        name = match.group(1).strip()
-        if len(name) > 3 and not name.startswith("NAD"):
-            return name[:200]
-
-    # "NAD ... of X's ..."
-    match = re.search(r"of\s+(.+?)'s\s", title)
-    if match:
-        return match.group(1).strip()[:200]
-
-    return title.split(",")[0].split(" — ")[0].strip()[:200]
-
-
-def _parse_nad_html(html: str, date_from: str | None = None) -> list[RegulatoryAction]:
-    """Parse NAD press releases from BBB National Programs media center."""
-    actions: list[RegulatoryAction] = []
-    seen_ids: set[str] = set()
-
     cutoff = None
     if date_from:
         try:
@@ -136,44 +168,49 @@ def _parse_nad_html(html: str, date_from: str | None = None) -> list[RegulatoryA
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=730)
+        cutoff = datetime.now() - timedelta(days=1825)
 
-    # Look for press release links with titles
-    # Pattern: <a href="/media-center/slug">Title</a> near date text
-    link_pattern = re.compile(
-        r'<a\s+href="(/media-center/[^"]+)"[^>]*>(.*?)</a>',
-        re.DOTALL | re.IGNORECASE,
-    )
+    actions: list[RegulatoryAction] = []
 
-    date_pattern = re.compile(
-        r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}'
-    )
+    async with httpx.AsyncClient(
+        timeout=60.0,
+        follow_redirects=True,
+        headers=BROWSER_HEADERS,
+    ) as client:
+        try:
+            resp = await client.get(SITEMAP_URL)
+            resp.raise_for_status()
+        except httpx.HTTPError as e:
+            logger.error("Failed to fetch NAD sitemap: %s", e)
+            return []
 
-    entries: list[tuple[int, str, str]] = []
-    for m in link_pattern.finditer(html):
-        path = m.group(1)
-        title = re.sub(r'<[^>]+>', '', m.group(2)).strip()
-        if not title or len(title) < 15:
+    try:
+        root = ElementTree.fromstring(resp.content)
+    except Exception as e:
+        logger.error("Failed to parse NAD sitemap XML: %s", e)
+        return []
+
+    for url_elem in root.findall("sm:url", SITEMAP_NS):
+        loc = url_elem.findtext("sm:loc", default="", namespaces=SITEMAP_NS)
+        lastmod = url_elem.findtext("sm:lastmod", default="", namespaces=SITEMAP_NS)
+
+        if not loc or DECISION_PATH_PREFIX not in loc:
             continue
-        # Only keep NAD-related entries
-        if "nad" not in title.lower() and "national advertising" not in title.lower():
-            continue
-        entries.append((m.start(), path, title))
 
-    for pos, path, title in entries:
-        # Look for a date near this entry
-        nearby = html[max(0, pos - 200):pos + 500]
-        date_match = date_pattern.search(nearby)
+        # Extract slug
+        slug = loc.split(DECISION_PATH_PREFIX, 1)[1].strip("/")
+        if not slug or len(slug) < 5:
+            continue
+
+        # Parse date from lastmod
         date_str = ""
-        if date_match:
-            raw = date_match.group(0)
-            for fmt in ("%B %d, %Y", "%B %d %Y"):
-                try:
-                    date_str = datetime.strptime(raw.strip(), fmt).strftime("%Y-%m-%d")
-                    break
-                except ValueError:
-                    continue
+        if lastmod:
+            try:
+                date_str = datetime.fromisoformat(lastmod.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+            except ValueError:
+                date_str = lastmod[:10]
 
+        # Date filtering
         if cutoff and date_str:
             try:
                 if datetime.strptime(date_str, "%Y-%m-%d") < cutoff:
@@ -181,80 +218,33 @@ def _parse_nad_html(html: str, date_from: str | None = None) -> list[RegulatoryA
             except ValueError:
                 pass
 
-        # Category filtering — skip non-product cases
-        categories = _classify_categories(title)
-        if not categories:
-            continue
-
-        violations = _classify_violations(title)
+        title = _slug_to_title(slug)
         company = _extract_company(title)
+        categories = _classify_categories(title)
+        violations = _classify_violations(title)
 
-        slug = path.rstrip("/").split("/")[-1][:60]
-        nad_id = f"nad-{slug}"
-        if nad_id in seen_ids:
-            continue
-        seen_ids.add(nad_id)
+        # Stable ID from slug hash
+        slug_hash = hashlib.md5(slug.encode()).hexdigest()[:12]
+        decision_id = f"nad-{slug_hash}"
+
+        # Determine severity: referrals to FTC are more serious
+        severity = Severity.WARNING if "refer" in title.lower() else Severity.ADVISORY
 
         action = RegulatoryAction(
-            id=nad_id,
+            id=decision_id,
             source=SourceType.NAD_DECISION,
-            source_id=nad_id,
-            title=f"NAD Decision: {title}"[:200],
+            source_id=decision_id,
+            title=f"NAD: {title}"[:200],
             description=title,
             company=company,
             product_categories=categories,
             violation_types=violations,
-            severity=Severity.WARNING,
+            severity=severity,
             date=date_str or datetime.now().strftime("%Y-%m-%d"),
-            url=f"https://bbbprograms.org{path}",
-            status="NAD Decision",
+            url=loc,
+            status="Decision",
         )
         actions.append(action)
 
+    logger.info("Fetched %d NAD decisions from sitemap", len(actions))
     return actions
-
-
-async def fetch_nad_decisions(
-    date_from: str | None = None,
-    max_pages: int = 3,
-) -> list[RegulatoryAction]:
-    """Fetch NAD decisions from BBB National Programs media center.
-
-    Args:
-        date_from: ISO date string for incremental sync
-        max_pages: Max pages to scrape
-
-    Returns:
-        List of RegulatoryAction records (only product-relevant cases)
-    """
-    all_actions: list[RegulatoryAction] = []
-    seen_ids: set[str] = set()
-
-    async with httpx.AsyncClient(
-        timeout=30.0,
-        follow_redirects=True,
-        headers=BROWSER_HEADERS,
-    ) as client:
-        for page in range(max_pages):
-            url = NAD_URL if page == 0 else f"{NAD_URL}?page={page}"
-            try:
-                resp = await client.get(url)
-                if resp.status_code in (403, 404, 429):
-                    logger.warning("BBB Programs returned %d on page %d", resp.status_code, page)
-                    break
-                resp.raise_for_status()
-            except httpx.HTTPError as e:
-                logger.error("Failed to fetch NAD page %d: %s", page, e)
-                break
-
-            actions = _parse_nad_html(resp.text, date_from)
-            if not actions:
-                break
-
-            for a in actions:
-                if a.source_id not in seen_ids:
-                    seen_ids.add(a.source_id)
-                    all_actions.append(a)
-
-    logger.info("Fetched %d NAD decisions", len(all_actions))
-    return all_actions

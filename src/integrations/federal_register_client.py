@@ -176,52 +176,60 @@ def _parse_fr_documents(documents: list[dict]) -> list[RegulationChange]:
 async def fetch_federal_register(
     date_from: str | None = None,
     agencies: list[str] | None = None,
-    max_records: int = 200,
+    max_pages: int = 50,
 ) -> list[RegulationChange]:
     """Fetch regulation documents from the Federal Register API.
 
     Args:
         date_from: ISO date string (YYYY-MM-DD) for incremental sync
         agencies: Agency slugs to filter (defaults to FDA, FTC, CPSC)
-        max_records: Maximum records to return
+        max_pages: Maximum pages to fetch (100 results per page)
 
     Returns:
         List of RegulationChange records
     """
-    start_date = date_from or (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+    start_date = date_from or (datetime.now() - timedelta(days=1825)).strftime("%Y-%m-%d")
     agency_list = agencies or AGENCIES
 
-    params = {
+    params: dict = {
         "conditions[publication_date][gte]": start_date,
         "conditions[type][]": FR_TYPE_CODES,
         "fields[]": FR_FIELDS,
-        "per_page": min(max_records, 100),
+        "per_page": 100,
         "order": "newest",
+        "page": 1,
     }
     for ag in agency_list:
         params.setdefault("conditions[agencies][]", [])
         if isinstance(params["conditions[agencies][]"], list):
             params["conditions[agencies][]"].append(ag)
 
+    all_changes: list[RegulationChange] = []
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(FR_API_URL, params=params)
-            if resp.status_code in (403, 404, 429):
-                logger.warning("Federal Register API returned %d", resp.status_code)
-                return []
-            resp.raise_for_status()
-            data = resp.json()
+            for page in range(1, max_pages + 1):
+                params["page"] = page
+                resp = await client.get(FR_API_URL, params=params)
+                if resp.status_code in (403, 404, 429):
+                    logger.warning("Federal Register API returned %d on page %d", resp.status_code, page)
+                    break
+                resp.raise_for_status()
+                data = resp.json()
+
+                documents = data.get("results", [])
+                if not isinstance(documents, list) or not documents:
+                    break
+
+                all_changes.extend(_parse_fr_documents(documents))
+
+                total_pages = data.get("total_pages", 1)
+                if page >= total_pages:
+                    break
     except httpx.HTTPError as e:
         logger.error("Failed to fetch Federal Register: %s", e)
-        return []
     except Exception as e:
         logger.error("Federal Register parse error: %s", e)
-        return []
 
-    documents = data.get("results", [])
-    if not isinstance(documents, list):
-        return []
-
-    changes = _parse_fr_documents(documents[:max_records])
-    logger.info("Fetched %d Federal Register documents", len(changes))
-    return changes
+    logger.info("Fetched %d Federal Register documents", len(all_changes))
+    return all_changes

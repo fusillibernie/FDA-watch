@@ -70,7 +70,7 @@ def _classify_stage(title: str) -> RegulationStage:
     return RegulationStage.AMENDMENT
 
 
-def _build_sparql_query(start_date: str, limit: int = 100) -> str:
+def _build_sparql_query(start_date: str, limit: int = 500, offset: int = 0) -> str:
     """Build a SPARQL query to find relevant EU regulations."""
     # Build a FILTER with relevance keywords
     keyword_filters = " || ".join(
@@ -94,6 +94,7 @@ SELECT DISTINCT ?work ?title ?date ?celex WHERE {{
 }}
 ORDER BY DESC(?date)
 LIMIT {limit}
+OFFSET {offset}
 """
 
 
@@ -145,6 +146,7 @@ def _parse_sparql_results(data: dict) -> list[RegulationChange]:
 
 async def fetch_eurlex_changes(
     date_from: str | None = None,
+    max_records: int = 500,
 ) -> list[RegulationChange]:
     """Fetch EU regulation changes from EUR-Lex via SPARQL.
 
@@ -153,37 +155,46 @@ async def fetch_eurlex_changes(
 
     Args:
         date_from: ISO date string for incremental sync
+        max_records: Maximum records to return
 
     Returns:
         List of RegulationChange records
     """
-    start_date = date_from or (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+    start_date = date_from or (datetime.now() - timedelta(days=1825)).strftime("%Y-%m-%d")
 
-    query = _build_sparql_query(start_date)
-
-    params = {
-        "query": query,
-        "format": "application/json",
-    }
+    page_size = 100
+    all_changes: list[RegulationChange] = []
 
     try:
         async with httpx.AsyncClient(
             timeout=30.0,
             follow_redirects=True,
         ) as client:
-            resp = await client.get(SPARQL_ENDPOINT, params=params)
-            if resp.status_code in (403, 404, 429):
-                logger.warning("EUR-Lex SPARQL returned %d", resp.status_code)
-                return []
-            resp.raise_for_status()
-            data = resp.json()
+            offset = 0
+            while offset < max_records:
+                query = _build_sparql_query(start_date, limit=page_size, offset=offset)
+                params = {
+                    "query": query,
+                    "format": "application/json",
+                }
+                resp = await client.get(SPARQL_ENDPOINT, params=params)
+                if resp.status_code in (403, 404, 429):
+                    logger.warning("EUR-Lex SPARQL returned %d", resp.status_code)
+                    break
+                resp.raise_for_status()
+                data = resp.json()
+
+                changes = _parse_sparql_results(data)
+                if not changes:
+                    break
+                all_changes.extend(changes)
+                if len(changes) < page_size:
+                    break
+                offset += page_size
     except httpx.HTTPError as e:
         logger.error("Failed to fetch EUR-Lex: %s", e)
-        return []
     except Exception as e:
         logger.error("EUR-Lex SPARQL parse error: %s", e)
-        return []
 
-    changes = _parse_sparql_results(data)
-    logger.info("Fetched %d EUR-Lex regulation changes", len(changes))
-    return changes
+    logger.info("Fetched %d EUR-Lex regulation changes", len(all_changes))
+    return all_changes

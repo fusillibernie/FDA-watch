@@ -105,6 +105,36 @@ async def test_fetch_rapex_alerts_error():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_fetch_rapex_alerts_with_categories():
+    route = respx.get("https://public.opendatasoft.com/api/explore/v2.1/catalog/datasets/healthref-europe-rapex-en/records").mock(
+        return_value=Response(200, json={
+            "total_count": 1,
+            "results": [
+                {
+                    "alert_number": "A12/00002/25",
+                    "product_name": "Cosmetic with banned substance",
+                    "alert_type": "Chemical risk",
+                    "product_brand": "TestCo",
+                    "product_category": "Cosmetics",
+                    "alert_level": "serious",
+                    "alert_date": "2025-08-01",
+                }
+            ]
+        })
+    )
+    actions = await fetch_rapex_alerts(
+        date_from="2025-01-01",
+        categories=["Cosmetics", "Chemical products"],
+    )
+    assert len(actions) == 1
+    # Verify the where clause includes category filter
+    request = route.calls[0].request
+    where_param = str(request.url)
+    assert "Cosmetics" in where_param or "product_category" in where_param
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_fetch_rapex_alerts_403():
     respx.get("https://public.opendatasoft.com/api/explore/v2.1/catalog/datasets/healthref-europe-rapex-en/records").mock(
         return_value=Response(403)

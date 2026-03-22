@@ -31,7 +31,7 @@ def _reset_services(tmp_path):
 
     # Reset source preferences to defaults (temp file)
     source_preferences._settings_file = tmp_path / "prefs.json"
-    source_preferences._prefs = source_preferences._load()
+    source_preferences._load()
 
 
 @pytest.fixture
@@ -145,14 +145,24 @@ def test_litigation_sources_reference(client):
     values = {s["value"] for s in sources}
     assert "ftc_action" in values
     assert "class_action" in values
-    assert "nad_decision" in values
     assert "state_ag" in values
+    assert "nad_decision" in values
 
 
 def test_ingest_status(client):
     resp = client.get("/api/ingest/status")
     assert resp.status_code == 200
     assert "sync_state" in resp.json()
+
+
+def test_reset_sync_state(client):
+    """Test that reset endpoint clears sync state."""
+    from api.main import ingestion_service
+    ingestion_service._sync_state["openfda_last_fetch"] = "2026-03-13"
+    ingestion_service._sync_state["ftc_last_fetch"] = "2026-03-13"
+    assert len(ingestion_service._sync_state) > 0
+    ingestion_service.reset_sync_state()
+    assert ingestion_service._sync_state == {}
 
 
 def test_source_preferences_get(client):
@@ -188,6 +198,19 @@ def test_source_preferences_update(client):
 
     # Reset
     client.put("/api/settings/sources", json={"source_key": "eu_rapex", "enabled": False})
+
+
+def test_source_preferences_lookback_days(client):
+    resp = client.put("/api/settings/sources", json={
+        "source_key": "ftc_action",
+        "enabled": True,
+        "lookback_days": 7300,
+    })
+    assert resp.status_code == 200
+
+    resp = client.get("/api/settings/sources")
+    ftc = next(s for s in resp.json() if s["source_key"] == "ftc_action")
+    assert ftc["lookback_days"] == 7300
 
 
 def test_source_preferences_invalid_key(client):

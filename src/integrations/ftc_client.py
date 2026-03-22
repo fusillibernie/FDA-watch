@@ -128,7 +128,7 @@ def _parse_ftc_cases_html(html: str, date_from: str | None = None) -> list[Regul
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=730)
+        cutoff = datetime.now() - timedelta(days=1825)
 
     # Find all case articles: <article about="..." class="node node--type-case ...">
     case_pattern = re.compile(
@@ -222,7 +222,7 @@ async def fetch_ftc_cases(
     seen_ids: set[str] = set()
 
     # Build base URL with date filter
-    date_min = date_from or (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
+    date_min = date_from or (datetime.now() - timedelta(days=1825)).strftime("%Y-%m-%d")
     base_params = f"?field_date_text_702%5Bmin%5D={date_min}&items_per_page=20"
 
     async with httpx.AsyncClient(

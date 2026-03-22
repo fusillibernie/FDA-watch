@@ -34,7 +34,7 @@ def _parse_ifra_html(html: str, date_from: str | None = None) -> list[Regulation
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=365)
+        cutoff = datetime.now() - timedelta(days=1825)
 
     # Look for amendment/standard entries
     entry_pattern = re.compile(
@@ -128,5 +128,8 @@ async def fetch_ifra_amendments(
         return []
 
     changes = _parse_ifra_html(resp.text, date_from)
-    logger.info("Fetched %d IFRA amendments", len(changes))
+    if not changes:
+        logger.warning("IFRA returned 0 amendments — page may be JS-rendered at %s", IFRA_URL)
+    else:
+        logger.info("Fetched %d IFRA amendments", len(changes))
     return changes

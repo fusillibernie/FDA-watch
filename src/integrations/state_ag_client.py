@@ -116,7 +116,7 @@ def _parse_ca_ag_html(html: str, date_from: str | None = None) -> list[Regulator
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=730)
+        cutoff = datetime.now() - timedelta(days=1825)
 
     # Look for press release links
     link_pattern = re.compile(
@@ -198,7 +198,7 @@ def _parse_ny_ag_html(html: str, date_from: str | None = None) -> list[Regulator
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=730)
+        cutoff = datetime.now() - timedelta(days=1825)
 
     link_pattern = re.compile(
         r'<a\s+href="(/press-release/[^"]+)"[^>]*>(.*?)</a>',

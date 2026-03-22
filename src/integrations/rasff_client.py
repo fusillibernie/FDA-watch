@@ -151,7 +151,7 @@ def _parse_rasff_html(html: str, date_from: str | None = None) -> list[Regulator
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=90)
+        cutoff = datetime.now() - timedelta(days=1825)
 
     # Look for notification rows — the SPA renders a table with notification data
     # Match reference numbers like "2026.1234" and associated text

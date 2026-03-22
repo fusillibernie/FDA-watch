@@ -1,7 +1,7 @@
 """Orchestrates regulation change ingestion from all sources."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from src.models.enums import SourceType
 from src.models.regulation import RegulationChange
@@ -29,6 +29,23 @@ class RegulationIngestionService:
         self.preferences = preferences or SourcePreferencesService()
         self.alerts = alerts or AlertService()
         self._sync_state: dict = {}
+
+    def _get_date_from(self, sync_key: str, source_key: str) -> str | None:
+        """Get effective date_from using sync state or lookback preference."""
+        saved = self._sync_state.get(sync_key)
+        if saved:
+            return saved
+        days = self.preferences.get_lookback_days(source_key)
+        return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    def reset_sync_state(self, source: str | None = None) -> None:
+        """Clear sync state to force a full historical re-fetch."""
+        if source:
+            key = f"{source}_last_fetch"
+            self._sync_state.pop(key, None)
+        else:
+            self._sync_state.clear()
+        logger.info("Regulation sync state reset%s", f" for {source}" if source else " (all sources)")
 
     async def ingest_all(self, source: str | None = None) -> dict:
         """Run regulation ingestion pipeline.
@@ -75,7 +92,7 @@ class RegulationIngestionService:
         return summary
 
     async def _ingest_federal_register(self) -> list[RegulationChange]:
-        date_from = self._sync_state.get("federal_register_last_fetch")
+        date_from = self._get_date_from("federal_register_last_fetch", "federal_register")
         try:
             changes = await fetch_federal_register(date_from=date_from)
         except Exception as e:
@@ -88,7 +105,7 @@ class RegulationIngestionService:
         return changes
 
     async def _ingest_fda_guidance(self) -> list[RegulationChange]:
-        date_from = self._sync_state.get("fda_guidance_last_fetch")
+        date_from = self._get_date_from("fda_guidance_last_fetch", "fda_guidance")
         try:
             changes = await fetch_fda_guidance(date_from=date_from)
         except Exception as e:
@@ -101,7 +118,7 @@ class RegulationIngestionService:
         return changes
 
     async def _ingest_eurlex(self) -> list[RegulationChange]:
-        date_from = self._sync_state.get("eurlex_last_fetch")
+        date_from = self._get_date_from("eurlex_last_fetch", "eu_official_journal")
         try:
             changes = await fetch_eurlex_changes(date_from=date_from)
         except Exception as e:
@@ -114,7 +131,7 @@ class RegulationIngestionService:
         return changes
 
     async def _ingest_ifra(self) -> list[RegulationChange]:
-        date_from = self._sync_state.get("ifra_last_fetch")
+        date_from = self._get_date_from("ifra_last_fetch", "ifra_amendment")
         try:
             changes = await fetch_ifra_amendments(date_from=date_from)
         except Exception as e:

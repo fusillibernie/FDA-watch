@@ -58,7 +58,7 @@ def _parse_sccs_opinions(html: str, date_from: str | None = None) -> list[Regula
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=365)
+        cutoff = datetime.now() - timedelta(days=1825)
 
     # Look for opinion entries — typical pattern:
     # <a href="/...">SCCS/1234/56 - Opinion on SubstanceName</a>
@@ -163,5 +163,8 @@ async def fetch_sccs_opinions(
         return []
 
     actions = _parse_sccs_opinions(resp.text, date_from)
-    logger.info("Fetched %d SCCS opinions", len(actions))
+    if not actions:
+        logger.warning("SCCS returned 0 opinions — page structure may have changed at %s", SCCS_URL)
+    else:
+        logger.info("Fetched %d SCCS opinions", len(actions))
     return actions

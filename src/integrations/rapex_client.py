@@ -125,47 +125,68 @@ def _parse_rapex_alerts(records: list[dict]) -> list[RegulatoryAction]:
     return actions
 
 
+DEFAULT_CATEGORIES = [
+    "Cosmetics",
+    "Food contact materials",
+    "Food-imitating products",
+    "Chemical products",
+]
+
+
 async def fetch_rapex_alerts(
     date_from: str | None = None,
-    max_records: int = 200,
+    max_records: int = 1000,
+    categories: list[str] | None = None,
 ) -> list[RegulatoryAction]:
     """Fetch EU Safety Gate (RAPEX) alerts from OpenDataSoft mirror.
 
     Args:
         date_from: ISO date string (YYYY-MM-DD) for incremental sync
         max_records: Maximum records to return
+        categories: Product categories to filter (e.g. ["Cosmetics", "Chemical products"])
 
     Returns:
         List of RegulatoryAction records
     """
-    start_date = date_from or (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+    start_date = date_from or (datetime.now() - timedelta(days=1825)).strftime("%Y-%m-%d")
 
-    params = {
-        "where": f"alert_date>='{start_date}'",
-        "limit": min(max_records, 100),
-        "offset": 0,
-        "order_by": "alert_date DESC",
-    }
+    where_clause = f"alert_date>='{start_date}'"
+    if categories:
+        cat_filter = " OR ".join(f"product_category='{cat}'" for cat in categories)
+        where_clause += f" AND ({cat_filter})"
+
+    page_size = 100
+    all_actions: list[RegulatoryAction] = []
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(RAPEX_API_URL, params=params)
-            if resp.status_code in (403, 404, 429):
-                logger.warning("RAPEX API returned %d", resp.status_code)
-                return []
-            resp.raise_for_status()
-            data = resp.json()
+            offset = 0
+            while offset < max_records:
+                params = {
+                    "where": where_clause,
+                    "limit": min(page_size, max_records - offset),
+                    "offset": offset,
+                    "order_by": "alert_date DESC",
+                }
+                resp = await client.get(RAPEX_API_URL, params=params)
+                if resp.status_code in (403, 404, 429):
+                    logger.warning("RAPEX API returned %d", resp.status_code)
+                    break
+                resp.raise_for_status()
+                data = resp.json()
+
+                records = data.get("results", [])
+                if not isinstance(records, list) or not records:
+                    break
+
+                all_actions.extend(_parse_rapex_alerts(records))
+                if len(records) < page_size:
+                    break
+                offset += page_size
     except httpx.HTTPError as e:
         logger.error("Failed to fetch RAPEX alerts: %s", e)
-        return []
     except Exception as e:
         logger.error("RAPEX response parse error: %s", e)
-        return []
 
-    records = data.get("results", [])
-    if not isinstance(records, list):
-        return []
-
-    actions = _parse_rapex_alerts(records[:max_records])
-    logger.info("Fetched %d RAPEX alerts", len(actions))
-    return actions
+    logger.info("Fetched %d RAPEX alerts", len(all_actions))
+    return all_actions

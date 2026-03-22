@@ -87,7 +87,7 @@ def _parse_xml(xml_bytes: bytes, date_from: str | None = None) -> tuple[
         except ValueError:
             pass
     else:
-        cutoff = datetime.now() - timedelta(days=730)
+        cutoff = datetime.now() - timedelta(days=1825)
 
     for item in root.iter():
         # The XML structure varies; try common tag names

@@ -24,6 +24,65 @@
   --green-100: #dcfce7;
   --blue-600: #2563eb;
 }
+
+/* Dark mode overrides */
+[data-theme="dark"] {
+  --red-600: #ef4444;
+  --red-700: #7f1d1d;
+  --red-50: #1c1017;
+  --red-100: #2d1520;
+  --amber-500: #fbbf24;
+  --amber-100: #292115;
+  --gray-50: #0f172a;
+  --gray-100: #1e293b;
+  --gray-200: #334155;
+  --gray-300: #475569;
+  --gray-500: #94a3b8;
+  --gray-700: #cbd5e1;
+  --gray-900: #e2e8f0;
+  --green-600: #22c55e;
+  --green-100: #132a1c;
+  --blue-600: #60a5fa;
+}
+[data-theme="dark"] .header { background: #1e1b4b; }
+[data-theme="dark"] .tabs { background: var(--gray-100); }
+[data-theme="dark"] table { background: var(--gray-100); }
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .chart-card,
+[data-theme="dark"] .alert-rule-card,
+[data-theme="dark"] .match-card,
+[data-theme="dark"] .settings-section { background: var(--gray-100); }
+[data-theme="dark"] .modal { background: #1e293b; color: #e2e8f0; }
+[data-theme="dark"] .detail-modal { background: #1e293b; color: #e2e8f0; }
+[data-theme="dark"] .detail-overlay { background: rgba(0,0,0,0.7); }
+[data-theme="dark"] .modal-overlay { background: rgba(0,0,0,0.7); }
+[data-theme="dark"] .btn-outline { background: var(--gray-100); border-color: var(--gray-300); color: var(--gray-700); }
+[data-theme="dark"] .btn-outline:hover { background: var(--gray-200); }
+[data-theme="dark"] .toolbar input,
+[data-theme="dark"] .toolbar select,
+[data-theme="dark"] .modal input,
+[data-theme="dark"] .modal select,
+[data-theme="dark"] .settings-section input { background: #0f172a; color: #e2e8f0; border-color: var(--gray-300); }
+[data-theme="dark"] .pagination button { background: var(--gray-100); color: var(--gray-700); border-color: var(--gray-300); }
+[data-theme="dark"] .source-us { background: #1e3a5f; color: #93c5fd; }
+[data-theme="dark"] .source-eu { background: #2e1065; color: #c4b5fd; }
+[data-theme="dark"] .severity-class_i { background: #450a0a; color: #fca5a5; }
+[data-theme="dark"] .severity-class_ii { background: #451a03; color: #fcd34d; }
+[data-theme="dark"] .severity-class_iii { background: #052e16; color: #86efac; }
+[data-theme="dark"] .severity-warning { background: #451a03; color: #fcd34d; }
+[data-theme="dark"] .severity-advisory { background: var(--gray-200); color: var(--gray-700); }
+[data-theme="dark"] .stage-proposed_rule, [data-theme="dark"] .stage-advance_notice { background: #451a03; color: #fcd34d; }
+[data-theme="dark"] .stage-final_rule, [data-theme="dark"] .stage-interim_final_rule { background: #052e16; color: #86efac; }
+[data-theme="dark"] .stage-amendment { background: #1e3a5f; color: #93c5fd; }
+[data-theme="dark"] .stage-guidance_draft { background: #451a03; color: #fcd34d; }
+[data-theme="dark"] .stage-guidance_final { background: #052e16; color: #86efac; }
+[data-theme="dark"] .stage-notice { background: var(--gray-200); color: var(--gray-700); }
+[data-theme="dark"] a { color: #ef4444; }
+[data-theme="dark"] tr:hover td { background: #1a1025; }
+
+.theme-toggle { background: none; border: 1px solid rgba(255,255,255,0.3); color: white; cursor: pointer; font-size: 1.2rem; width: 2.2rem; height: 2.2rem; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+.theme-toggle:hover { background: rgba(255,255,255,0.1); }
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--gray-50); color: var(--gray-900); }
 a { color: var(--red-600); text-decoration: none; }
@@ -160,7 +219,10 @@ tr:hover td { background: var(--red-50); }
     <h1>FDA-watch</h1>
     <div class="subtitle">FDA &amp; Advertising Compliance Monitor</div>
   </div>
-  <button class="btn btn-primary" onclick="triggerIngest()" id="ingestBtn">Sync Now</button>
+  <div style="display:flex;gap:0.5rem;align-items:center">
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" id="themeBtn">&#9790;</button>
+    <button class="btn btn-primary" onclick="triggerIngest()" id="ingestBtn">Sync Now</button>
+  </div>
 </div>
 
 <div class="tabs">
@@ -228,7 +290,6 @@ tr:hover td { background: var(--red-50); }
         <option value="">All Sources</option>
         <option value="ftc_action">FTC Actions</option>
         <option value="class_action">Class Actions</option>
-        <option value="nad_decision">NAD Decisions</option>
         <option value="state_ag">State AG Actions</option>
       </select>
       <select id="litCategory"><option value="">All Categories</option></select>
@@ -296,6 +357,11 @@ tr:hover td { background: var(--red-50); }
       <h3>Data Sources</h3>
       <p style="font-size:0.85rem;color:var(--gray-500);margin-bottom:0.75rem">Enable or disable data sources. EU sources are disabled by default.</p>
       <div id="sourceToggles"></div>
+      <div id="rapexCategories" style="display:none;margin-top:0.75rem;padding:0.75rem;border:1px solid var(--gray-200);border-radius:6px">
+        <h4 style="font-size:0.85rem;margin-bottom:0.5rem;color:var(--gray-700)">RAPEX Category Filter</h4>
+        <p style="font-size:0.8rem;color:var(--gray-500);margin-bottom:0.5rem">Only fetch alerts in selected categories:</p>
+        <div id="rapexCategoryChecks"></div>
+      </div>
       <button class="btn btn-outline" onclick="saveSourcePreferences()" style="margin-top:0.5rem">Save Sources</button>
     </div>
     <div class="settings-section">
@@ -330,8 +396,10 @@ tr:hover td { background: var(--red-50); }
     </div>
     <div class="settings-section">
       <h3>Data Management</h3>
-      <button class="btn btn-outline" onclick="triggerIngest()">Re-ingest All Data</button>
+      <button class="btn btn-outline" onclick="triggerIngest()">Incremental Sync</button>
+      <button class="btn btn-danger" onclick="fullResync()" style="margin-left:0.5rem">Full Re-sync</button>
       <span style="margin-left:0.5rem;font-size:0.85rem;color:var(--gray-500)" id="syncInfo"></span>
+      <p style="font-size:0.8rem;color:var(--gray-500);margin-top:0.5rem">Full re-sync clears all sync timestamps and re-fetches historical data based on each source's lookback window (configured above). This may take several minutes.</p>
     </div>
   </div>
 
@@ -370,6 +438,36 @@ tr:hover td { background: var(--red-50); }
 </div>
 
 <script>
+// --- Theme ---
+function isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
+function getChartColors() {
+  if (isDark()) return { paper: '#1e293b', plot: '#1e293b', font: '#e2e8f0', grid: '#334155', bar: '#ef4444', line: '#ef4444' };
+  return { paper: '#ffffff', plot: '#ffffff', font: '#111827', grid: '#e5e7eb', bar: '#dc2626', line: '#dc2626' };
+}
+function toggleTheme() {
+  const next = isDark() ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('fda-watch-theme', next);
+  document.getElementById('themeBtn').innerHTML = next === 'dark' ? '&#9788;' : '&#9790;';
+  replotCharts();
+}
+function replotCharts() {
+  const c = getChartColors();
+  const layout = { paper_bgcolor: c.paper, plot_bgcolor: c.plot, font: { color: c.font }, xaxis: { gridcolor: c.grid }, yaxis: { gridcolor: c.grid } };
+  ['chartTimeline', 'chartSeverity', 'chartTrends'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.data) Plotly.relayout(id, layout);
+  });
+}
+(function initTheme() {
+  const saved = localStorage.getItem('fda-watch-theme');
+  const theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', theme);
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('themeBtn').innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+  });
+})();
+
 const API = '';
 let enfOffset = 0;
 const ENF_LIMIT = 50;
@@ -426,13 +524,16 @@ async function loadDashboard() {
     const months = Object.keys(stats.by_month || {});
     const counts = Object.values(stats.by_month || {});
     if (months.length > 0) {
+      const tc = getChartColors();
       Plotly.newPlot('chartTimeline', [{
         x: months, y: counts, type: 'bar',
-        marker: { color: '#dc2626' }
+        marker: { color: tc.bar }
       }], {
         margin: { t: 10, b: 40, l: 40, r: 10 },
         height: 250,
-        xaxis: { tickangle: -45 },
+        xaxis: { tickangle: -45, gridcolor: tc.grid },
+        yaxis: { gridcolor: tc.grid },
+        paper_bgcolor: tc.paper, plot_bgcolor: tc.plot, font: { color: tc.font },
       }, { responsive: true, displayModeBar: false });
     }
 
@@ -440,6 +541,7 @@ async function loadDashboard() {
     const sevLabels = Object.keys(stats.by_severity || {});
     const sevValues = Object.values(stats.by_severity || {});
     if (sevLabels.length > 0) {
+      const sc = getChartColors();
       Plotly.newPlot('chartSeverity', [{
         labels: sevLabels.map(s => s.replace('_', ' ').toUpperCase()),
         values: sevValues,
@@ -449,7 +551,8 @@ async function loadDashboard() {
         margin: { t: 10, b: 10, l: 10, r: 10 },
         height: 250,
         showlegend: true,
-        legend: { font: { size: 11 } }
+        legend: { font: { size: 11, color: sc.font } },
+        paper_bgcolor: sc.paper, plot_bgcolor: sc.plot, font: { color: sc.font },
       }, { responsive: true, displayModeBar: false });
     }
 
@@ -545,7 +648,6 @@ function buildSourceLabel(a) {
   if (a.source === 'class_action') return 'View Case Details';
   if (a.source === 'cpsc_recall') return 'View CPSC Recall';
   if (a.source === 'prop_65') return 'View Prop 65 Notice';
-  if (a.source === 'nad_decision') return 'View NAD Decision';
   if (a.source === 'state_ag') return 'View AG Press Release';
   if (a.source === 'eu_rapex') return 'View RAPEX Alert';
   if (a.source === 'eu_rasff') return 'View RASFF Notification';
@@ -844,14 +946,17 @@ async function loadTrends() {
     const months = (data.monthly_counts || []).map(m => m.month);
     const counts = (data.monthly_counts || []).map(m => m.count);
     if (months.length > 0) {
+      const trc = getChartColors();
       Plotly.newPlot('chartTrends', [{
         x: months, y: counts, type: 'scatter', mode: 'lines+markers',
-        line: { color: '#dc2626', width: 2 },
+        line: { color: trc.line, width: 2 },
         marker: { size: 6 }
       }], {
         margin: { t: 10, b: 40, l: 40, r: 10 },
         height: 250,
-        xaxis: { tickangle: -45 },
+        xaxis: { tickangle: -45, gridcolor: trc.grid },
+        yaxis: { gridcolor: trc.grid },
+        paper_bgcolor: trc.paper, plot_bgcolor: trc.plot, font: { color: trc.font },
       }, { responsive: true, displayModeBar: false });
     }
 
@@ -934,6 +1039,29 @@ async function triggerIngest() {
     loadAlertMatches();
   } catch (e) {
     alert('Sync failed: ' + e.message);
+  } finally {
+    btn.textContent = 'Sync Now';
+    btn.disabled = false;
+  }
+}
+
+async function fullResync() {
+  if (!confirm('This will reset all sync timestamps and re-fetch 5 years of historical data from all sources. This may take several minutes. Continue?')) return;
+  const btn = document.getElementById('ingestBtn');
+  btn.textContent = 'Full Re-sync...';
+  btn.disabled = true;
+  try {
+    const result = await fetch(API + '/api/ingest/reset', { method: 'POST', headers: getAuthHeaders() }).then(r => r.json());
+    const enfNew = result.enforcement?.new_actions || 0;
+    const regNew = result.regulations?.new_changes || 0;
+    alert('Full re-sync complete. New enforcement actions: ' + enfNew + ', New regulation changes: ' + regNew);
+    loadDashboard();
+    loadActions();
+    loadLitigation();
+    loadRegulations();
+    loadAlertMatches();
+  } catch (e) {
+    alert('Full re-sync failed: ' + e.message);
   } finally {
     btn.textContent = 'Sync Now';
     btn.disabled = false;
@@ -1187,9 +1315,14 @@ async function loadSourcePreferences() {
       items.forEach(s => {
         const row = document.createElement('div');
         row.className = 'toggle-row';
+        const years = Math.round((s.lookback_days || 1825) / 365 * 10) / 10;
         row.innerHTML =
-          '<label><input type="checkbox" data-source-key="' + escapeHtml(s.source_key) + '" ' +
-          (s.enabled ? 'checked' : '') + '> ' + escapeHtml(s.label) + '</label>';
+          '<label style="flex:1"><input type="checkbox" data-source-key="' + escapeHtml(s.source_key) + '" ' +
+          (s.enabled ? 'checked' : '') + '> ' + escapeHtml(s.label) + '</label>' +
+          '<label style="font-size:0.8rem;color:var(--gray-500);margin-left:0.5rem;white-space:nowrap">' +
+          '<input type="number" data-lookback-key="' + escapeHtml(s.source_key) + '" ' +
+          'value="' + years + '" min="0.1" max="100" step="0.5" ' +
+          'style="width:60px;padding:2px 4px;font-size:0.8rem;border:1px solid var(--gray-300);border-radius:4px;background:var(--bg-primary);color:var(--text-primary)"> yrs</label>';
         group.appendChild(row);
       });
       container.appendChild(group);
@@ -1197,11 +1330,26 @@ async function loadSourcePreferences() {
 
     // Also populate enforcement source dropdown
     const enfSource = document.getElementById('enfSource');
-    // Clear existing options except first
     enfSource.innerHTML = '<option value="">All Sources</option>';
     sources.forEach(s => {
       enfSource.innerHTML += '<option value="' + escapeHtml(s.source_key) + '">' + escapeHtml(s.label) + '</option>';
     });
+
+    // RAPEX category filter
+    const rapex = sources.find(s => s.source_key === 'eu_rapex');
+    const rapexPanel = document.getElementById('rapexCategories');
+    const rapexChecks = document.getElementById('rapexCategoryChecks');
+    const allRapexCats = ['Cosmetics', 'Food contact materials', 'Food-imitating products', 'Chemical products', 'Childcare articles and children\u2019s equipment', 'Toys', 'Lighting equipment', 'Clothing, textiles and fashion items'];
+    const activeCats = rapex && rapex.categories ? rapex.categories : [];
+    rapexChecks.innerHTML = '';
+    allRapexCats.forEach(cat => {
+      const row = document.createElement('div');
+      row.className = 'toggle-row';
+      row.innerHTML = '<label><input type="checkbox" data-rapex-cat="' + escapeHtml(cat) + '" ' +
+        (activeCats.includes(cat) ? 'checked' : '') + '> ' + escapeHtml(cat) + '</label>';
+      rapexChecks.appendChild(row);
+    });
+    rapexPanel.style.display = rapex && rapex.enabled ? 'block' : 'none';
   } catch (e) {
     console.error('Failed to load source preferences:', e);
   }
@@ -1211,10 +1359,25 @@ async function saveSourcePreferences() {
   const checkboxes = document.querySelectorAll('#sourceToggles input[data-source-key]');
   try {
     for (const cb of checkboxes) {
+      const payload = { source_key: cb.dataset.sourceKey, enabled: cb.checked };
+      // Include lookback_days
+      const lookbackInput = document.querySelector('input[data-lookback-key="' + cb.dataset.sourceKey + '"]');
+      if (lookbackInput) {
+        const years = parseFloat(lookbackInput.value) || 5;
+        payload.lookback_days = Math.round(years * 365);
+      }
+      // For RAPEX, include category filter
+      if (cb.dataset.sourceKey === 'eu_rapex') {
+        const catChecks = document.querySelectorAll('#rapexCategoryChecks input[data-rapex-cat]');
+        const cats = [];
+        catChecks.forEach(cc => { if (cc.checked) cats.push(cc.dataset.rapexCat); });
+        payload.categories = cats;
+        document.getElementById('rapexCategories').style.display = cb.checked ? 'block' : 'none';
+      }
       await fetch(API + '/api/settings/sources', {
         method: 'PUT',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ source_key: cb.dataset.sourceKey, enabled: cb.checked }),
+        body: JSON.stringify(payload),
       });
     }
     alert('Source preferences saved.');

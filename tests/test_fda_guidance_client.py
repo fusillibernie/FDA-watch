@@ -49,6 +49,10 @@ def test_parse_fda_guidance_date_filter():
 @pytest.mark.asyncio
 @respx.mock
 async def test_fetch_fda_guidance_success():
+    # JSON endpoint fails, falls back to HTML
+    respx.get("https://www.fda.gov/datatables-json/search-for-guidance.json").mock(
+        return_value=Response(503)
+    )
     respx.get("https://www.fda.gov/regulatory-information/search-fda-guidance-documents").mock(
         return_value=Response(200, text=SAMPLE_HTML)
     )
@@ -59,7 +63,29 @@ async def test_fetch_fda_guidance_success():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_fetch_fda_guidance_json_success():
+    # JSON endpoint works
+    respx.get("https://www.fda.gov/datatables-json/search-for-guidance.json").mock(
+        return_value=Response(200, json=[
+            {
+                "field_0": '<a href="/regulatory-information/guidance-cosmetic-safety">Draft Guidance: Cosmetic Safety Standards</a>',
+                "field_1": "03/15/2025",
+                "field_2": "Draft",
+            },
+        ])
+    )
+    changes = await fetch_fda_guidance(date_from="2024-01-01")
+    assert len(changes) == 1
+    assert changes[0].source == SourceType.FDA_GUIDANCE
+    assert "cosmetic" in changes[0].title.lower()
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_fetch_fda_guidance_error():
+    respx.get("https://www.fda.gov/datatables-json/search-for-guidance.json").mock(
+        return_value=Response(503)
+    )
     respx.get("https://www.fda.gov/regulatory-information/search-fda-guidance-documents").mock(
         return_value=Response(403)
     )

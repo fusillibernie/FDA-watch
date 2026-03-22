@@ -167,7 +167,7 @@ async def fetch_cpsc_recalls(
     Returns:
         List of RegulatoryAction records (only product-relevant recalls)
     """
-    start_date = date_from or (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+    start_date = date_from or (datetime.now() - timedelta(days=1825)).strftime("%Y-%m-%d")
 
     params = {
         "format": "json",
