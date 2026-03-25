@@ -1,0 +1,137 @@
+{
+  "standards": [
+    {
+      "cfr_part": "21 CFR 131",
+      "title": "Milk and Cream",
+      "subcategory": "dairy",
+      "products": ["milk", "cream", "half-and-half", "sour cream", "yogurt", "acidified milk", "eggnog"],
+      "keywords": ["milk", "cream", "yogurt", "dairy", "sour cream", "half and half", "eggnog"]
+    },
+    {
+      "cfr_part": "21 CFR 133",
+      "title": "Cheeses and Related Products",
+      "subcategory": "cheese",
+      "products": ["cheddar", "mozzarella", "parmesan", "cream cheese", "swiss", "provolone", "cottage cheese", "ricotta"],
+      "keywords": ["cheese", "parmesan", "cheddar", "mozzarella", "cream cheese", "cottage cheese", "ricotta"]
+    },
+    {
+      "cfr_part": "21 CFR 135",
+      "title": "Frozen Desserts",
+      "subcategory": "frozen_desserts",
+      "products": ["ice cream", "frozen custard", "ice milk", "sherbet", "water ice", "mellorine", "goat milk ice cream"],
+      "keywords": ["ice cream", "frozen custard", "sherbet", "gelato", "frozen dessert", "frozen yogurt"]
+    },
+    {
+      "cfr_part": "21 CFR 136",
+      "title": "Bakery Products",
+      "subcategory": "bakery",
+      "products": ["bread", "white bread", "enriched bread", "milk bread", "raisin bread", "rolls", "buns"],
+      "keywords": ["bread", "rolls", "buns", "whole wheat", "enriched bread"]
+    },
+    {
+      "cfr_part": "21 CFR 137",
+      "title": "Cereal Flours and Related Products",
+      "subcategory": "cereal",
+      "products": ["flour", "enriched flour", "self-rising flour", "whole wheat flour", "corn meal", "farina"],
+      "keywords": ["flour", "corn meal", "farina", "cereal flour", "semolina"]
+    },
+    {
+      "cfr_part": "21 CFR 139",
+      "title": "Macaroni and Noodle Products",
+      "subcategory": "cereal",
+      "products": ["macaroni", "spaghetti", "vermicelli", "egg noodles"],
+      "keywords": ["pasta", "macaroni", "spaghetti", "noodle", "vermicelli"]
+    },
+    {
+      "cfr_part": "21 CFR 145",
+      "title": "Canned Fruits",
+      "subcategory": "canned_fruit",
+      "products": ["canned peaches", "canned pears", "canned pineapple", "fruit cocktail", "canned applesauce"],
+      "keywords": ["canned fruit", "fruit cocktail", "applesauce", "canned peach", "canned pear"]
+    },
+    {
+      "cfr_part": "21 CFR 146",
+      "title": "Canned Fruit Juices",
+      "subcategory": "fruit_juice",
+      "products": ["orange juice", "grapefruit juice", "pineapple juice", "lemon juice", "frozen concentrate"],
+      "keywords": ["juice", "orange juice", "grapefruit juice", "lemon juice", "from concentrate", "not from concentrate"]
+    },
+    {
+      "cfr_part": "21 CFR 150",
+      "title": "Fruit Butters, Jellies, Preserves",
+      "subcategory": "condiments",
+      "products": ["fruit butter", "fruit jelly", "fruit preserves", "fruit jam", "marmalade"],
+      "keywords": ["jelly", "jam", "preserves", "marmalade", "fruit butter"]
+    },
+    {
+      "cfr_part": "21 CFR 155",
+      "title": "Canned Vegetables",
+      "subcategory": "canned_vegetables",
+      "products": ["canned peas", "canned corn", "canned tomatoes", "tomato paste", "catsup"],
+      "keywords": ["canned vegetable", "tomato paste", "catsup", "ketchup", "tomato sauce", "canned peas", "canned corn"]
+    },
+    {
+      "cfr_part": "21 CFR 160",
+      "title": "Eggs and Egg Products",
+      "subcategory": "eggs",
+      "products": ["dried eggs", "frozen eggs", "liquid eggs"],
+      "keywords": ["egg", "dried egg", "frozen egg", "liquid egg"]
+    },
+    {
+      "cfr_part": "21 CFR 161",
+      "title": "Fish and Shellfish",
+      "subcategory": "seafood",
+      "products": ["canned tuna", "canned shrimp", "canned oysters", "canned sardines", "canned salmon"],
+      "keywords": ["tuna", "shrimp", "crab", "lobster", "sardine", "salmon", "oyster", "seafood"]
+    },
+    {
+      "cfr_part": "21 CFR 163",
+      "title": "Cacao Products",
+      "subcategory": "chocolate",
+      "products": ["chocolate", "white chocolate", "milk chocolate", "cocoa", "cocoa butter", "sweet chocolate", "bittersweet"],
+      "keywords": ["chocolate", "white chocolate", "cocoa", "cacao", "cocoa butter", "dark chocolate", "milk chocolate"]
+    },
+    {
+      "cfr_part": "21 CFR 164",
+      "title": "Tree Nut and Peanut Products",
+      "subcategory": "other_food",
+      "products": ["peanut butter", "mixed nuts", "shelled nuts"],
+      "keywords": ["peanut butter", "almond butter", "nut butter", "mixed nuts"]
+    },
+    {
+      "cfr_part": "21 CFR 166",
+      "title": "Margarine",
+      "subcategory": "oils_fats",
+      "products": ["margarine", "oleomargarine"],
+      "keywords": ["margarine", "butter substitute", "oleomargarine"]
+    },
+    {
+      "cfr_part": "21 CFR 168",
+      "title": "Sweeteners and Table Sirups",
+      "subcategory": "sweeteners",
+      "products": ["honey", "maple syrup", "table syrup", "cane syrup", "corn syrup", "sorghum syrup"],
+      "keywords": ["honey", "maple syrup", "maple", "syrup", "agave", "pure honey", "raw honey"]
+    },
+    {
+      "cfr_part": "21 CFR 169",
+      "title": "Food Dressings and Flavorings",
+      "subcategory": "condiments",
+      "products": ["mayonnaise", "french dressing", "salad dressing", "vanilla extract", "vanilla flavoring"],
+      "keywords": ["mayo", "mayonnaise", "dressing", "vanilla extract", "vanilla", "vinegar", "salad dressing"]
+    },
+    {
+      "cfr_part": "USDA FSIS",
+      "title": "Meat and Poultry Standards",
+      "subcategory": "meat_poultry",
+      "products": ["chicken", "beef", "pork", "turkey", "sausage", "hot dog", "bacon", "ham"],
+      "keywords": ["chicken", "beef", "pork", "turkey", "meat", "sausage", "hot dog", "bacon", "ham", "poultry"]
+    },
+    {
+      "cfr_part": "21 CFR 101.30",
+      "title": "Olive Oil Labeling",
+      "subcategory": "oils_fats",
+      "products": ["olive oil", "extra virgin olive oil", "virgin olive oil"],
+      "keywords": ["olive oil", "extra virgin", "EVOO", "virgin olive oil"]
+    }
+  ]
+}

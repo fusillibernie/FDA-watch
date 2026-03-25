@@ -8,7 +8,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from src.models.enums import ProductCategory, Severity, SourceType, ViolationType
+from src.models.enums import FoodSubcategory, ProductCategory, Severity, SourceType, ViolationType
 from src.models.enforcement import RegulatoryAction
 from src.services.database import init_db, action_to_row, row_to_action_dict
 from src.services.dedup_service import find_duplicates, _normalize_company
@@ -55,13 +55,15 @@ class SearchService:
         """Insert or ignore a single action row."""
         cols = ["id", "source", "source_id", "title", "description", "company",
                 "product_categories", "violation_types", "severity", "date",
-                "jurisdiction", "url", "status", "distribution", "raw_data"]
+                "jurisdiction", "url", "status", "distribution", "raw_data",
+                "soi_metadata"]
         placeholders = ", ".join(f":{c}" for c in cols)
         col_names = ", ".join(cols)
         # Fill defaults for missing keys
         row.setdefault("jurisdiction", "US")
         row.setdefault("distribution", None)
         row.setdefault("raw_data", None)
+        row.setdefault("soi_metadata", None)
         row.setdefault("url", None)
         row.setdefault("status", None)
         self._conn.execute(
@@ -91,10 +93,10 @@ class SearchService:
             cursor = self._conn.execute(
                 "INSERT OR IGNORE INTO actions (id, source, source_id, title, description, "
                 "company, product_categories, violation_types, severity, date, jurisdiction, "
-                "url, status, distribution, raw_data) "
+                "url, status, distribution, raw_data, soi_metadata) "
                 "VALUES (:id, :source, :source_id, :title, :description, :company, "
                 ":product_categories, :violation_types, :severity, :date, :jurisdiction, "
-                ":url, :status, :distribution, :raw_data)",
+                ":url, :status, :distribution, :raw_data, :soi_metadata)",
                 {
                     "id": row.get("id"),
                     "source": row.get("source"),
@@ -111,6 +113,7 @@ class SearchService:
                     "status": row.get("status"),
                     "distribution": row.get("distribution"),
                     "raw_data": row.get("raw_data"),
+                    "soi_metadata": row.get("soi_metadata"),
                 },
             )
             if cursor.rowcount > 0:
@@ -138,6 +141,7 @@ class SearchService:
         company: str | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
+        food_subcategory: FoodSubcategory | None = None,
         offset: int = 0,
         limit: int = 50,
     ) -> tuple[list[RegulatoryAction], int]:
@@ -178,6 +182,10 @@ class SearchService:
         if date_to:
             where_clauses.append("date <= :date_to")
             params["date_to"] = date_to
+
+        if food_subcategory:
+            where_clauses.append("soi_metadata LIKE :food_subcategory")
+            params["food_subcategory"] = f'%"food_subcategory": "{food_subcategory.value}"%'
 
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 

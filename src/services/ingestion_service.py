@@ -21,7 +21,9 @@ from src.integrations.rapex_client import fetch_rapex_alerts
 from src.integrations.rasff_client import fetch_rasff_notifications
 from src.integrations.sccs_client import fetch_sccs_opinions
 from src.integrations.echa_client import fetch_echa_substances
-from src.models.enums import SourceType
+from src.integrations.courtlistener_client import fetch_courtlistener_dockets
+from src.models.enums import SourceType, ViolationType
+from src.services.soi_enricher import SOIEnricher
 from src.services.source_preferences import SourcePreferencesService
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,7 @@ class IngestionService:
         self.classifier = classifier or ViolationClassifier()
         self.api_key = api_key
         self.preferences = preferences or SourcePreferencesService()
+        self.soi_enricher = SOIEnricher()
         self._sync_state = self._load_sync_state()
 
     def _load_sync_state(self) -> dict:
@@ -196,8 +199,18 @@ class IngestionService:
             all_new_actions.extend(actions)
             summary["sources"]["eu_echa"] = len(actions)
 
+        if (source is None or source == "courtlistener") and self.preferences.is_enabled(SourceType.COURTLISTENER):
+            actions = await self._ingest_courtlistener()
+            all_new_actions.extend(actions)
+            summary["sources"]["courtlistener"] = len(actions)
+
         # Classify all new actions
         self.classifier.classify_batch(all_new_actions)
+
+        # Enrich SOI-classified actions
+        for action in all_new_actions:
+            if ViolationType.STANDARDS_OF_IDENTITY in action.violation_types:
+                action.soi_metadata = self.soi_enricher.enrich(action)
 
         # Add to search index (deduplicates)
         new_count = self.search.add_actions(all_new_actions)
@@ -376,6 +389,18 @@ class IngestionService:
             return []
 
         self._advance_sync_state("echa_last_fetch", actions)
+        return actions
+
+    async def _ingest_courtlistener(self) -> list[RegulatoryAction]:
+        """Fetch federal court docket filings from CourtListener RECAP."""
+        date_from = self._get_date_from("courtlistener_last_fetch", "courtlistener")
+        try:
+            actions = await fetch_courtlistener_dockets(date_from=date_from)
+        except Exception as e:
+            logger.error("Failed to fetch CourtListener dockets: %s", e)
+            return []
+
+        self._advance_sync_state("courtlistener_last_fetch", actions)
         return actions
 
     def _save_letters(self, new_letters: list[WarningLetterMeta]) -> None:

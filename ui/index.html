@@ -266,6 +266,7 @@ tr:hover td { background: var(--red-50); }
       <select id="enfViolation"><option value="">All Violations</option></select>
       <select id="enfSeverity"><option value="">All Severities</option></select>
       <select id="enfSource"><option value="">All Sources</option></select>
+      <select id="enfFoodSubcat" style="display:none;"><option value="">Food Subcategory</option></select>
       <button class="btn btn-outline" onclick="loadActions()">Filter</button>
       <button class="btn btn-outline" onclick="exportCSV('enforcement')">Export CSV</button>
     </div>
@@ -584,11 +585,14 @@ async function loadActions() {
   const sev = document.getElementById('enfSeverity').value;
   const src = document.getElementById('enfSource').value;
 
+  const foodSub = document.getElementById('enfFoodSubcat').value;
+
   if (q) params.set('q', q);
   if (cat) params.set('category', cat);
   if (vio) params.set('violation_type', vio);
   if (sev) params.set('severity', sev);
   if (src) params.set('source', src);
+  if (foodSub) params.set('food_subcategory', foodSub);
   params.set('offset', enfOffset);
   params.set('limit', ENF_LIMIT);
 
@@ -680,6 +684,24 @@ async function showActionDetail(id) {
       '<div class="field"><div class="field-label">Distribution</div><div class="field-value">' + escapeHtml(a.distribution || 'N/A') + '</div></div>' +
       '<div class="field"><div class="field-label">Status</div><div class="field-value">' + escapeHtml(a.status || 'N/A') + '</div></div>' +
       '<div class="field"><div class="field-label">Description</div><div class="field-value description">' + escapeHtml(a.description) + '</div></div>';
+
+    // SOI metadata block
+    if (a.soi_metadata) {
+      const soi = a.soi_metadata;
+      let soiHtml = '<div style="margin:0.5rem 0;padding:0.75rem;background:var(--amber-50,#fffbeb);border:1px solid var(--amber-200,#fde68a);border-radius:8px">';
+      soiHtml += '<div style="font-weight:600;margin-bottom:0.4rem;color:var(--amber-800,#92400e)">Standards of Identity Details</div>';
+      if (soi.food_subcategory) {
+        soiHtml += '<div class="field"><div class="field-label">Food Subcategory</div><div class="field-value">' + escapeHtml(soi.food_subcategory.replace('_', ' ')) + '</div></div>';
+      }
+      if (soi.cfr_references && soi.cfr_references.length) {
+        soiHtml += '<div class="field"><div class="field-label">CFR References</div><div class="field-value">' + soi.cfr_references.map(r => escapeHtml(r)).join(', ') + '</div></div>';
+      }
+      if (soi.matched_products && soi.matched_products.length) {
+        soiHtml += '<div class="field"><div class="field-label">Matched Products</div><div class="field-value">' + soi.matched_products.map(p => escapeHtml(p)).join(', ') + '</div></div>';
+      }
+      soiHtml += '</div>';
+      html += soiHtml;
+    }
 
     if (sourceUrl) {
       html += '<div class="field"><a href="' + escapeHtml(sourceUrl) + '" target="_blank">' + sourceLabel + ' &rarr;</a></div>';
@@ -1119,10 +1141,11 @@ async function saveScheduler() {
 // --- Populate dropdowns ---
 async function loadReference() {
   try {
-    const [cats, viols, stages] = await Promise.all([
+    const [cats, viols, stages, foodSubs] = await Promise.all([
       fetch(API + '/api/reference/product-categories').then(r => r.json()),
       fetch(API + '/api/reference/violation-types').then(r => r.json()),
       fetch(API + '/api/reference/regulation-stages').then(r => r.json()).catch(() => []),
+      fetch(API + '/api/reference/food-subcategories').then(r => r.json()).catch(() => []),
     ]);
     const enfCat = document.getElementById('enfCategory');
     const ruleCat = document.getElementById('ruleCategory');
@@ -1149,6 +1172,15 @@ async function loadReference() {
     const enfSev = document.getElementById('enfSeverity');
     ['class_i', 'class_ii', 'class_iii', 'warning', 'advisory'].forEach(s => {
       enfSev.innerHTML += '<option value="' + s + '">' + escapeHtml(s.replace('_', ' ').toUpperCase()) + '</option>';
+    });
+    // Food subcategory dropdown (shows when SOI violation filter is selected)
+    const enfFoodSubcat = document.getElementById('enfFoodSubcat');
+    foodSubs.forEach(fs => {
+      enfFoodSubcat.innerHTML += '<option value="' + escapeHtml(fs.value) + '">' + escapeHtml(fs.label) + '</option>';
+    });
+    document.getElementById('enfViolation').addEventListener('change', function() {
+      enfFoodSubcat.style.display = this.value === 'standards_of_identity' ? '' : 'none';
+      if (this.value !== 'standards_of_identity') enfFoodSubcat.value = '';
     });
   } catch (e) {
     console.error('Failed to load reference data:', e);

@@ -42,7 +42,8 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
             url TEXT,
             status TEXT,
             distribution TEXT,
-            raw_data TEXT
+            raw_data TEXT,
+            soi_metadata TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_actions_source ON actions(source);
@@ -115,8 +116,22 @@ def init_db(db_path: Path | None = None) -> sqlite3.Connection:
         );
     """)
     conn.commit()
+
+    # Migrations for existing databases
+    _migrate_add_soi_metadata(conn)
+
     logger.info("Database initialized at %s", db_path or DB_PATH)
     return conn
+
+
+def _migrate_add_soi_metadata(conn: sqlite3.Connection) -> None:
+    """Add soi_metadata column to actions table if it doesn't exist."""
+    cursor = conn.execute("PRAGMA table_info(actions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "soi_metadata" not in columns:
+        conn.execute("ALTER TABLE actions ADD COLUMN soi_metadata TEXT")
+        conn.commit()
+        logger.info("Migrated actions table: added soi_metadata column")
 
 
 def action_to_row(action_dict: dict) -> dict:
@@ -127,6 +142,8 @@ def action_to_row(action_dict: dict) -> dict:
             row[field] = json.dumps(row[field])
     if isinstance(row.get("raw_data"), dict):
         row["raw_data"] = json.dumps(row["raw_data"])
+    if isinstance(row.get("soi_metadata"), dict):
+        row["soi_metadata"] = json.dumps(row["soi_metadata"])
     return row
 
 
@@ -144,6 +161,11 @@ def row_to_action_dict(row: sqlite3.Row) -> dict:
             d["raw_data"] = json.loads(d["raw_data"])
         except (json.JSONDecodeError, TypeError):
             d["raw_data"] = None
+    if isinstance(d.get("soi_metadata"), str) and d["soi_metadata"]:
+        try:
+            d["soi_metadata"] = json.loads(d["soi_metadata"])
+        except (json.JSONDecodeError, TypeError):
+            d["soi_metadata"] = None
     return d
 
 

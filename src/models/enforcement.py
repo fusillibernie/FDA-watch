@@ -21,6 +21,7 @@ class RegulatoryAction(BaseModel):
     status: str | None = None
     distribution: str | None = None
     raw_data: dict | None = None
+    soi_metadata: dict | None = None  # {food_subcategory, cfr_references, matched_products}
 
 
 class WarningLetterMeta(BaseModel):

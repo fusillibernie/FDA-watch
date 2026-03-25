@@ -29,6 +29,7 @@ US_SOURCES = {
     SourceType.NAD_DECISION,
     SourceType.FEDERAL_REGISTER,
     SourceType.FDA_GUIDANCE,
+    SourceType.COURTLISTENER,
 }
 
 EU_SOURCES = {
@@ -57,6 +58,7 @@ SOURCE_LABELS = {
     SourceType.FDA_GUIDANCE: "FDA Guidance Documents",
     SourceType.EU_OFFICIAL_JOURNAL: "EU Official Journal (EUR-Lex)",
     SourceType.IFRA_AMENDMENT: "IFRA Standards Amendments",
+    SourceType.COURTLISTENER: "CourtListener (RECAP)",
 }
 
 

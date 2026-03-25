@@ -71,7 +71,7 @@ def test_get_all(tmp_path):
         assert entry["enabled"] is False
 
     us_entries = [p for p in all_prefs if p["jurisdiction"] == "US"]
-    assert len(us_entries) == 10
+    assert len(us_entries) == 11
     for entry in us_entries:
         assert entry["enabled"] is True
 

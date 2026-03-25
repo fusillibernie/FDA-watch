@@ -31,6 +31,26 @@ class ViolationType(str, Enum):
     OTHER = "other"
 
 
+class FoodSubcategory(str, Enum):
+    DAIRY = "dairy"                    # 21 CFR 131 (milk, yogurt, cream, ice cream)
+    CHEESE = "cheese"                  # 21 CFR 133
+    FROZEN_DESSERTS = "frozen_desserts" # 21 CFR 135 (ice cream, sherbet)
+    BAKERY = "bakery"                  # 21 CFR 136 (bread, rolls)
+    CEREAL = "cereal"                  # 21 CFR 137 (flour, meal)
+    CANNED_FRUIT = "canned_fruit"      # 21 CFR 145
+    CANNED_VEGETABLES = "canned_vegetables"  # 21 CFR 155
+    FRUIT_JUICE = "fruit_juice"        # 21 CFR 146
+    CHOCOLATE = "chocolate"            # 21 CFR 163
+    SWEETENERS = "sweeteners"          # 21 CFR 168 (honey, maple syrup, sugar)
+    CONDIMENTS = "condiments"          # 21 CFR 169 (mayo, dressings, vinegar)
+    OILS_FATS = "oils_fats"            # 21 CFR 166 (margarine, olive oil)
+    SEAFOOD = "seafood"                # 21 CFR 161
+    EGGS = "eggs"                      # 21 CFR 160
+    MEAT_POULTRY = "meat_poultry"      # USDA FSIS standards
+    BEVERAGES = "beverages"            # Various
+    OTHER_FOOD = "other_food"
+
+
 class Severity(str, Enum):
     CLASS_I = "class_i"
     CLASS_II = "class_ii"
@@ -56,6 +76,7 @@ class SourceType(str, Enum):
     FDA_GUIDANCE = "fda_guidance"
     EU_OFFICIAL_JOURNAL = "eu_official_journal"
     IFRA_AMENDMENT = "ifra_amendment"
+    COURTLISTENER = "courtlistener"
 
 
 class RegulationStage(str, Enum):

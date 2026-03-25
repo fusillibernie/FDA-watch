@@ -15,7 +15,9 @@ from slowapi.util import get_remote_address
 
 import asyncio
 
-from src.models.enums import ProductCategory, RegulationStage, Severity, SourceType, ViolationType
+import json
+
+from src.models.enums import FoodSubcategory, ProductCategory, RegulationStage, Severity, SourceType, ViolationType
 from src.services.alert_service import AlertService
 from src.services.classifier import ViolationClassifier
 from src.services.ingestion_service import IngestionService
@@ -185,6 +187,7 @@ async def list_actions(
     company: str | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    food_subcategory: FoodSubcategory | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -198,6 +201,7 @@ async def list_actions(
         company=company,
         date_from=date_from,
         date_to=date_to,
+        food_subcategory=food_subcategory,
         offset=offset,
         limit=limit,
     )
@@ -484,6 +488,23 @@ async def list_product_categories():
 @app.get("/api/reference/regulation-stages")
 async def list_regulation_stages():
     return [{"value": s.value, "label": s.name.replace("_", " ").title()} for s in RegulationStage]
+
+
+@app.get("/api/reference/food-subcategories")
+async def list_food_subcategories():
+    return [{"value": v.value, "label": v.name.replace("_", " ").title()} for v in FoodSubcategory]
+
+
+@app.get("/api/reference/soi-standards")
+async def list_soi_standards():
+    """List all FDA standards of identity with CFR references."""
+    path = Path(__file__).parent / "data" / "reference" / "soi_standards.json"
+    if not path.exists():
+        path = Path(__file__).parent.parent / "data" / "reference" / "soi_standards.json"
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {"standards": []}
 
 
 # ---------------------------------------------------------------------------

@@ -225,7 +225,7 @@ def test_source_types_reference(client):
     resp = client.get("/api/reference/source-types")
     assert resp.status_code == 200
     types = resp.json()
-    assert len(types) == 16  # 10 US + 6 EU
+    assert len(types) == 17  # 11 US + 6 EU
     values = {t["value"] for t in types}
     assert "eu_rapex" in values
     assert "eu_rasff" in values
