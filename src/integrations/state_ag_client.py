@@ -60,6 +60,10 @@ VIOLATION_KEYWORDS = {
     "contaminat": ViolationType.CONTAMINATION,
     "unsafe": ViolationType.CONTAMINATION,
     "adulterat": ViolationType.ADULTERATION,
+    "standard of identity": ViolationType.STANDARDS_OF_IDENTITY,
+    "imitation": ViolationType.STANDARDS_OF_IDENTITY,
+    "not real": ViolationType.STANDARDS_OF_IDENTITY,
+    "not genuine": ViolationType.STANDARDS_OF_IDENTITY,
 }
 
 

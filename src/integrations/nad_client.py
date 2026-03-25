@@ -68,6 +68,9 @@ VIOLATION_KEYWORDS = {
     "refers": ViolationType.DECEPTIVE_ADVERTISING,  # "Refers X to FTC" = serious
     "modify": ViolationType.DECEPTIVE_ADVERTISING,
     "discontinue": ViolationType.DECEPTIVE_ADVERTISING,
+    "standard of identity": ViolationType.STANDARDS_OF_IDENTITY,
+    "imitation": ViolationType.STANDARDS_OF_IDENTITY,
+    "not real": ViolationType.STANDARDS_OF_IDENTITY,
 }
 
 

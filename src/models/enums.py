@@ -27,6 +27,7 @@ class ViolationType(str, Enum):
     FOOD_SAFETY_ALERT = "food_safety_alert"
     RESTRICTED_SUBSTANCE = "restricted_substance"
     COSMETIC_SAFETY_CONCERN = "cosmetic_safety_concern"
+    STANDARDS_OF_IDENTITY = "standards_of_identity"
     OTHER = "other"
 
 

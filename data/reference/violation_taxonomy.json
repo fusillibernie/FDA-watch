@@ -66,5 +66,34 @@
   "cosmetic_safety_concern": {
     "keywords": ["cosmetic safety", "endocrine disruptor", "sensitizer", "banned ingredient", "CMR in cosmetic", "nanomaterial concern", "preservative limit"],
     "patterns": ["SCCS.*opinion", "cosmetic.*safety", "endocrine.*disrupt", "annex II", "annex III"]
+  },
+  "standards_of_identity": {
+    "keywords": [
+      "standard of identity", "standards of identity",
+      "not real", "not actually", "not genuine",
+      "imitation", "substitute product",
+      "characterizing ingredient", "characterizing flavor",
+      "does not meet the definition", "fails to meet the definition",
+      "cannot legally be called", "cannot be labeled as",
+      "not enough", "insufficient amount",
+      "vanilla flavored", "made with real",
+      "100% pure", "100% real",
+      "contains no real", "without any real",
+      "slack fill", "nonfunctional slack fill",
+      "not ice cream", "not yogurt", "not cheese", "not butter",
+      "not honey", "not maple syrup", "not olive oil", "not chocolate",
+      "not mayo", "not mayonnaise", "not juice", "not milk", "not cream",
+      "not vanilla", "not parmesan", "not white chocolate"
+    ],
+    "patterns": [
+      "21 CFR 13[0-9]", "21 CFR 14[0-9]", "21 CFR 15[0-9]", "21 CFR 16[0-9]",
+      "standard.?of.?identity",
+      "section 403\\(g\\)",
+      "does not (contain|meet|qualify|satisfy).*standard",
+      "purport.* to be .*(but|yet|however)",
+      "labeled as .* (but|yet|however).*(not|isn.t|does not|doesn.t)",
+      "not .*(real|genuine|true|actual|authentic) .*(ice cream|yogurt|cheese|butter|honey|maple|olive|chocolate|vanilla|mayo|juice|milk|cream|parmesan)",
+      "(ice cream|yogurt|cheese|butter|honey|maple syrup|olive oil|chocolate|vanilla|mayo|mayonnaise|juice|milk|cream|parmesan).*(not|fail|lack|insufficient|imitation)"
+    ]
   }
 }

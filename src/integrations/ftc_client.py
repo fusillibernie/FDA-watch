@@ -49,6 +49,9 @@ VIOLATION_KEYWORDS = {
     "unfair": ViolationType.DECEPTIVE_ADVERTISING,
     "misbranding": ViolationType.MISBRANDING,
     "labeling": ViolationType.LABELING_VIOLATION,
+    "standard of identity": ViolationType.STANDARDS_OF_IDENTITY,
+    "imitation": ViolationType.STANDARDS_OF_IDENTITY,
+    "not real": ViolationType.STANDARDS_OF_IDENTITY,
 }
 
 
